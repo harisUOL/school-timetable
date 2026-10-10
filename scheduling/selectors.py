@@ -46,6 +46,8 @@ class Cell:
     day_label: str = ""
     period: int = None
     entry: TimetableEntry = None
+    time_label: str = ""  # bell times, e.g. "08:00–08:40"
+    own_time: bool = False  # True when this day's times differ from the column heading
 
     @property
     def roman(self):
@@ -62,6 +64,8 @@ class Cell:
     @property
     def aria_label(self):
         where = f"{self.day_label}, period {self.period}"
+        if self.time_label:
+            where += f" ({self.time_label})"
         if self.entry:
             locked = ", locked" if self.entry.is_locked else ""
             return f"{where}: {self.entry.subject.name} with {self.entry.teacher.name}{locked}"
@@ -78,32 +82,49 @@ class Row:
 
 @dataclass
 class Grid:
-    columns: list  # header cells: {"kind": "period"|"recess", "label": ...}
+    columns: list  # header cells: {"kind": "period"|"recess", "label": ..., "time": ...}
     rows: list
     filled: int
     total_slots: int
 
 
-def row_cells(schedule, width, recess_after, entries_by_period):
+def row_cells(schedule, width, recess_after, entries_by_period, columns=None):
     """
     One row of the grid: periods 1..width, with recess inserted after this
     day's recess position. Periods past the day's end are "no lesson" cells.
     A day without recess gets a filler cell so every row has the same width.
+
+    Each slot carries its bell times. Pass the header `columns` so a slot whose
+    times differ from its column heading is marked to show its own.
     """
+    headings = {c["period"]: c["time"] for c in columns or [] if c["kind"] == "period"}
+    recess_heading = next((c["time"] for c in columns or [] if c["kind"] == "recess"), "")
+    times = {t.number: t.label for t in schedule.timings if t.kind == "period"}
+    recess_time = schedule.recess_time
     cells = []
     for period in range(1, width + 1):
         if period <= schedule.periods:
             entry = entries_by_period.get(period)
-            cells.append(
-                Cell(LESSON if entry else EMPTY, schedule.day, schedule.label, period, entry)
-            )
+            cell = Cell(LESSON if entry else EMPTY, schedule.day, schedule.label, period, entry)
+            cell.time_label = times.get(period, "")
+            cell.own_time = bool(cell.time_label) and cell.time_label != headings.get(period)
+            cells.append(cell)
         else:
             cells.append(Cell(NONE, schedule.day, schedule.label, period))
         if schedule.has_recess and period == schedule.recess_after:
-            cells.append(Cell(RECESS, schedule.day, schedule.label))
+            cell = Cell(RECESS, schedule.day, schedule.label)
+            cell.time_label = recess_time.label if recess_time else ""
+            cell.own_time = bool(cell.time_label) and cell.time_label != recess_heading
+            cells.append(cell)
     if recess_after and not schedule.has_recess:
         cells.append(Cell(NONE, schedule.day, schedule.label))
     return cells
+
+
+def _shared(labels):
+    """The one label every day agrees on, or "" when they differ."""
+    labels = set(labels)
+    return labels.pop() if len(labels) == 1 else ""
 
 
 def grid_header(week):
@@ -111,11 +132,21 @@ def grid_header(week):
     # The recess column follows the first longest day that has a recess.
     with_recess = sorted((s for s in week if s.has_recess), key=lambda s: -s.periods)
     recess_after = with_recess[0].recess_after if with_recess else 0
+    period_times = defaultdict(list)
+    recess_times = []
+    for s in week:
+        for t in s.timings:
+            if t.kind == "period":
+                period_times[t.number].append(t.label)
+            elif s.recess_after == recess_after:
+                recess_times.append(t.label)
     columns = []
     for period in range(1, width + 1):
-        columns.append({"kind": "period", "label": roman(period), "period": period})
+        columns.append(
+            {"kind": "period", "label": roman(period), "period": period, "time": _shared(period_times[period])}
+        )
         if recess_after and period == recess_after:
-            columns.append({"kind": "recess", "label": "Recess"})
+            columns.append({"kind": "recess", "label": "Recess", "time": _shared(recess_times)})
     return width, recess_after, columns
 
 
@@ -126,7 +157,7 @@ def class_grid(class_group):
     for entry in TimetableEntry.objects.with_related().filter(class_group=class_group):
         entries[entry.day][entry.period] = entry
     rows = [
-        Row(s.day, s.label, s.short_label, row_cells(s, width, recess_after, entries[s.day]))
+        Row(s.day, s.label, s.short_label, row_cells(s, width, recess_after, entries[s.day], columns))
         for s in week
     ]
     filled = sum(1 for row in rows for cell in row.cells if cell.kind == LESSON)
@@ -534,7 +565,7 @@ def teacher_grid(teacher):
             s.day,
             s.label,
             s.short_label,
-            row_cells(s, width, recess_after, entries[s.day]),
+            row_cells(s, width, recess_after, entries[s.day], columns),
             LoadCell(s.day, s.short_label, len(entries[s.day]), caps.get(s.day)),
         )
         for s in week

@@ -47,7 +47,9 @@ class PageTests(ApiTestCase):
         response = self.client.get(reverse("scheduling:class_timetable", args=[self.c10a.pk]))
         self.assertContains(response, "Class 10A")
         self.assertContains(response, '<span data-stat="filled">1</span> of 51 slots filled', html=False)
-        self.assertContains(response, "<th scope=\"col\" class=\"period-col\">IV</th>", html=True)
+        self.assertContains(
+            response, '<th scope="col" class="period-col">IV<span class="col-time">10:00–10:40</span></th>', html=True
+        )
         self.assertContains(response, 'data-slot="0-2"')
         self.assertContains(response, "Ms Maths")
         self.assertContains(response, "Reset timetable")

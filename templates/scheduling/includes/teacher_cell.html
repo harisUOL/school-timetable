@@ -1,7 +1,7 @@
-{% if cell.kind == "recess" %}<td class="recess-cell" aria-label="Recess"><span>Recess</span></td>{% elif cell.kind == "none" %}<td class="none-cell"><span class="visually-hidden">No lesson</span></td>{% elif cell.entry %}<td class="slot-cell">
+{% if cell.kind == "recess" %}<td class="recess-cell" aria-label="Recess{% if cell.time_label %} {{ cell.time_label }}{% endif %}"{% if cell.time_label %} title="Recess {{ cell.time_label }}"{% endif %}><span>Recess</span></td>{% elif cell.kind == "none" %}<td class="none-cell"><span class="visually-hidden">No lesson</span></td>{% elif cell.entry %}<td class="slot-cell">
   <a class="slot slot-lesson{% if cell.entry.is_locked %} is-locked{% endif %}" href="{% url 'scheduling:class_timetable' cell.entry.class_group_id %}#slot-{{ cell.day }}-{{ cell.period }}" aria-label="{{ cell.day_label }}, period {{ cell.period }}: {{ cell.entry.class_group }} {{ cell.entry.subject.name }}">
-    <span class="slot-period" aria-hidden="true">{{ cell.roman }}</span>
+    <span class="slot-period" aria-hidden="true">{{ cell.roman }}</span>{% if cell.own_time %}<span class="slot-time">{{ cell.time_label }}</span>{% endif %}
     <span class="slot-subject">{{ cell.entry.class_group }}</span>
     <span class="slot-teacher">{{ cell.entry.subject.name }}</span>
   </a>
-</td>{% else %}<td class="slot-cell"><div class="slot slot-free" aria-label="{{ cell.day_label }}, period {{ cell.period }}: free"><span class="slot-period" aria-hidden="true">{{ cell.roman }}</span></div></td>{% endif %}
+</td>{% else %}<td class="slot-cell"><div class="slot slot-free" aria-label="{{ cell.day_label }}, period {{ cell.period }}: free"><span class="slot-period" aria-hidden="true">{{ cell.roman }}</span>{% if cell.own_time %}<span class="slot-time">{{ cell.time_label }}</span>{% endif %}</div></td>{% endif %}

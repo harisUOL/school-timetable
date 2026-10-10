@@ -10,7 +10,14 @@ from school.allotment import COMBINED, PARALLEL, parse_allotment, plan_import
 from school.constants import Day
 from school.day_schedule import get_day_schedule, weekly_teaching_slots
 from school.health import run_health_checks
-from school.models import ClassGroup, Subject, SubjectRequirement, Teacher, TeacherDailyAvailability
+from school.models import (
+    ClassGroup,
+    SchoolDayConfiguration,
+    Subject,
+    SubjectRequirement,
+    Teacher,
+    TeacherDailyAvailability,
+)
 
 ROWS = [
     ("Teacher", "Class", "Subject", "Periods/week"),
@@ -80,17 +87,20 @@ class ParseTests(TestCase):
 
 
 class ImportCommandTests(TestCase):
-    def test_imports_school_week_and_data(self):
+    def test_imports_data_and_leaves_the_school_week_alone(self):
+        SchoolDayConfiguration.objects.filter(day=Day.FRIDAY).update(periods=6)
         output = run(str(workbook()))
         self.assertIn("Imported: 4 classes", output)
         self.assertIn("Skipped", output)
-        self.assertEqual(get_day_schedule(Day.SATURDAY).periods, 6)
+        # The week is configured on the Settings page; the import never changes it.
+        self.assertEqual(get_day_schedule(Day.FRIDAY).periods, 6)
+        self.assertEqual(get_day_schedule(Day.SATURDAY).periods, 9)
         self.assertEqual(weekly_teaching_slots(), 51)
         self.assertEqual(sorted(str(c) for c in ClassGroup.objects.all()), ["IX A", "Sr Nur A", "VII A", "VII B"])
         bhatt = Teacher.objects.get(name="A B Bhatt")
         self.assertEqual(
             dict(bhatt.daily_availability.values_list("day", "max_periods")),
-            {Day.MONDAY: 9, Day.TUESDAY: 9, Day.WEDNESDAY: 9, Day.THURSDAY: 9, Day.FRIDAY: 9, Day.SATURDAY: 6},
+            {Day.MONDAY: 9, Day.TUESDAY: 9, Day.WEDNESDAY: 9, Day.THURSDAY: 9, Day.FRIDAY: 6, Day.SATURDAY: 9},
         )
         self.assertTrue(bhatt.is_qualified_for(Subject.objects.get(code="AF6-10")))
         req = SubjectRequirement.objects.get(class_group__section__name="A", class_group__grade__name="VII", subject__code="HIS")

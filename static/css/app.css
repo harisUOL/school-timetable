@@ -236,7 +236,7 @@ p { margin: 0 0 .75rem; }
 
 .field { display: grid; gap: .3rem; }
 .field label { font-weight: 600; font-size: .95rem; }
-input[type="text"], input[type="password"], input[type="number"], select, textarea {
+input[type="text"], input[type="password"], input[type="number"], input[type="time"], select, textarea {
   font: inherit; padding: .5rem .6rem; border: 1px solid var(--border); border-radius: 6px;
   background: var(--surface); color: var(--text); min-height: 2.5rem; width: 100%;
 }
@@ -245,6 +245,29 @@ input[aria-invalid="true"] { border-color: var(--error); background: var(--error
 .form-actions { display: flex; gap: .5rem; justify-content: flex-end; padding-top: 1rem; }
 .form-inline { display: flex; gap: .5rem; flex-wrap: wrap; align-items: end; }
 .form-inline .field { min-width: 10rem; }
+
+/* ---- Settings: school week and bell times ----------------------------- */
+
+.settings-defaults .field { min-width: 9rem; flex: 1 1 9rem; }
+.settings-defaults .input-num { width: 100%; }
+.settings-days td { padding: .35rem .4rem; }
+.settings-days input[type="time"] { width: 7.5rem; }
+.settings-days input[type="checkbox"] { width: 1.15rem; height: 1.15rem; }
+form h3 { margin: 1.25rem 0 .25rem; font-size: 1rem; }
+form .check { margin-top: 1rem; align-items: flex-start; }
+.nowrap { white-space: nowrap; }
+.bell-list { display: flex; flex-wrap: wrap; gap: .35rem; margin: 0; padding: 0; list-style: none; }
+.bell { padding: .15rem .5rem; border: 1px solid var(--border); border-radius: 999px; font-size: .8rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bell-name { color: var(--text-muted); }
+.bell-recess { background: var(--surface-2); border-style: dashed; }
+@media (max-width: 640px) {
+  /* Phones: each day becomes a block, its timings wrapping underneath. */
+  .bell-times thead { display: none; }
+  .bell-times tr { display: grid; grid-template-columns: 1fr auto auto; gap: .25rem .75rem; padding: .6rem 0; border-bottom: 1px solid var(--border); }
+  .table.bell-times th, .table.bell-times td { display: block; padding: 0; border: 0; }
+  .bell-times tbody td:last-child, .bell-times tfoot td:last-child { grid-column: 1 / -1; }
+  .bell-times tbody td.num::after { content: " periods"; }
+}
 
 /* ---- Tables ---------------------------------------------------------- */
 
@@ -314,6 +337,8 @@ button.slot:hover { border-color: var(--primary); box-shadow: 0 0 0 1px var(--pr
 .slot-lesson { background: var(--info-bg); border-color: var(--lesson-border); }
 .slot.is-locked { box-shadow: inset 0 0 0 2px var(--warning); }
 .slot-period { position: absolute; top: 2px; left: 5px; font-size: .65rem; color: var(--text-muted); }
+.slot-time { order: 9; font-size: .62rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.timetable .col-time { display: block; font-size: .66rem; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .slot-subject { font-weight: 700; font-size: .85rem; }
 .slot-teacher { font-size: .72rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .slot-add { font-size: 1.2rem; color: var(--text-muted); }

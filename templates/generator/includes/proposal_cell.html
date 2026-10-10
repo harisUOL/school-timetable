@@ -1,7 +1,7 @@
-{% if cell.kind == "recess" %}<td class="recess-cell" aria-label="Recess"><span>Recess</span></td>{% elif cell.kind == "none" %}<td class="none-cell"><span class="visually-hidden">No lesson</span></td>{% else %}<td class="slot-cell">
+{% if cell.kind == "recess" %}<td class="recess-cell" aria-label="Recess{% if cell.time_label %} {{ cell.time_label }}{% endif %}"{% if cell.time_label %} title="Recess {{ cell.time_label }}"{% endif %}><span>Recess</span></td>{% elif cell.kind == "none" %}<td class="none-cell"><span class="visually-hidden">No lesson</span></td>{% else %}<td class="slot-cell">
   <div class="slot diff-{{ cell.diff|default:'empty' }}{% if not cell.entry %} slot-empty{% else %} slot-lesson{% endif %}" role="group"
        aria-label="{{ cell.day_label }}, period {{ cell.period }}: {% if cell.entry %}{% if view == 'teacher' %}{{ cell.entry.class_group }} {% endif %}{{ cell.entry.subject.name }}{% if view != 'teacher' %} with {{ cell.entry.teacher.name }}{% endif %}{% else %}empty{% endif %}{% if cell.diff_label %} ({{ cell.diff_label }}){% endif %}">
-    <span class="slot-period" aria-hidden="true">{{ cell.roman }}</span>
+    <span class="slot-period" aria-hidden="true">{{ cell.roman }}</span>{% if cell.own_time %}<span class="slot-time">{{ cell.time_label }}</span>{% endif %}
     {% if cell.entry %}
       {% if view == "teacher" %}
       <span class="slot-subject">{{ cell.entry.class_group }}</span><span class="slot-teacher">{{ cell.entry.subject.name }}</span>

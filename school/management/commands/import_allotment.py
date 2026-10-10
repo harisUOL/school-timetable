@@ -9,6 +9,9 @@ Safe to re-run with an updated sheet: records are matched by name/code, existing
 daily capacities are kept (new teachers get the full day on every operating day),
 and each imported class's requirements are brought in line with the sheet.
 
+The school week (days, periods, bell times) is not touched: set it on the
+Settings page, preferably before importing so new teachers get the right full day.
+
 Allocations the system cannot represent yet (combined classes and parallel
 groups, see school/allotment.py) are skipped and listed.
 """
@@ -20,13 +23,11 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from school.allotment import REASONS, AllotmentError, grade_order, parse_allotment, plan_import, split_class
-from school.constants import Day
 from school.day_schedule import get_week_schedule
 from school.health import run_health_checks
 from school.models import (
     ClassGroup,
     Grade,
-    SchoolDayConfiguration,
     Section,
     Subject,
     SubjectRequirement,
@@ -34,9 +35,6 @@ from school.models import (
     TeacherDailyAvailability,
     TeacherSubject,
 )
-
-SATURDAY_PERIODS = 6
-
 
 class DryRun(Exception):
     pass
@@ -82,7 +80,6 @@ class Command(BaseCommand):
     # ------------------------------------------------------------------
 
     def apply(self, plan):
-        self.configure_week()
         week = get_week_schedule()
 
         subjects = {}
@@ -144,19 +141,6 @@ class Command(BaseCommand):
             "periods": periods_total,
             "removed": removed,
         }
-
-    def configure_week(self):
-        """Monday–Friday use the school default (9 periods); Saturday has 6; Sunday is closed."""
-        for day in range(Day.MONDAY, Day.SUNDAY + 1):
-            config, _ = SchoolDayConfiguration.objects.get_or_create(day=day)
-            operating = day != Day.SUNDAY
-            periods = SATURDAY_PERIODS if day == Day.SATURDAY else config.periods
-            if config.is_operating == operating and config.periods == periods:
-                continue
-            config.is_operating = operating
-            config.periods = periods
-            config.full_clean()
-            config.save()
 
     # ------------------------------------------------------------------
 

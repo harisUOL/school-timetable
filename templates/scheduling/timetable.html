@@ -47,7 +47,7 @@
         <thead>
           <tr>
             <th scope="col" class="day-col">Day</th>
-            {% for column in grid.columns %}<th scope="col" class="{% if column.kind == 'recess' %}recess-col{% else %}period-col{% endif %}">{% if column.kind == 'recess' %}<span class="visually-hidden">Recess</span>{% else %}{{ column.label }}{% endif %}</th>{% endfor %}
+            {% for column in grid.columns %}<th scope="col" class="{% if column.kind == 'recess' %}recess-col{% else %}period-col{% endif %}"{% if column.kind == 'recess' and column.time %} title="Recess {{ column.time }}"{% endif %}>{% if column.kind == 'recess' %}<span class="visually-hidden">Recess{% if column.time %} {{ column.time }}{% endif %}</span>{% else %}{{ column.label }}{% if column.time %}<span class="col-time">{{ column.time }}</span>{% endif %}{% endif %}</th>{% endfor %}
           </tr>
         </thead>
         <tbody>

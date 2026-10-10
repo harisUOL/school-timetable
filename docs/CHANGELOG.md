@@ -331,3 +331,35 @@ Applying 486 lessons through the service takes about 5 s on SQLite.
     labs, HIN/URD groups, A&M, CL, HC, and X History/Civics.
 - Subject codes with a clear meaning get full names. Unknown codes (TKW, CL, A&M, ACT,
   AF1-5, AF6-10) keep the code as their name and can be renamed in the admin.
+
+## School week editor and bell times
+
+**Built**
+- Bell times: the school has a start time, a period length and a recess length (defaults
+  08:00, 40 and 20 minutes). Any day may override them, as it already could for periods
+  and recess position.
+  - `DaySchedule.timings` works out each period's start and end. `school/day_schedule.py`
+    is still the only source.
+  - The day must finish by midnight, which the models and the form both check.
+- The Settings page (administrators only) now edits the school week in one form:
+  - the defaults;
+  - per-day open/closed, periods, recess position, start time, period length and recess
+    length. A blank field inherits the default.
+  - A *Bell times* table lists every day's hours and each period's times.
+  - The whole week is validated against the new values and saved in one transaction, or
+    not at all. Lessons beyond a shortened day always block the save.
+  - *Keep teachers' daily capacities in step* (ticked by default): a full-day capacity
+    follows the day's new length, up or down. Any other capacity above the new length is
+    lowered to it. Refined capacities below the length are kept. Unticked, shortening a
+    day is refused while capacities exceed it, as before.
+- Every timetable shows the times:
+  - class, teacher and proposal grids, print views, Excel and PDF;
+  - a column heading shows the times when every day agrees;
+  - a day with different times shows them in its own cells.
+- The admin edits the new fields too.
+
+**Changed**
+- `import_allotment` no longer sets the school week. The week is configured on the
+  Settings page, so re-importing a sheet never undoes it.
+- The school's week is now Monday–Thursday 9 periods, Friday 6 and Saturday 9 (applied
+  through the Settings form, which moved 180 full-day capacities with it).

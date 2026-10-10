@@ -32,6 +32,7 @@ def _write_table(ws, table, start_row=1, cell_height=32):
     ws.cell(start_row, 1, table.title).font = Font(bold=True, size=13)
     ws.cell(start_row + 1, 1, table.subtitle).font = Font(italic=True, color="555555")
     header_row = start_row + 2
+    ws.row_dimensions[header_row].height = 30  # period number and bell times
     for col, label in enumerate(table.header, start=1):
         cell = ws.cell(header_row, col, label)
         cell.font = Font(bold=True)

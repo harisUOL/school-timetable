@@ -33,3 +33,11 @@ DEFAULT_PERIODS_PER_DAY = 9
 DEFAULT_RECESS_AFTER_PERIOD = 4
 # The default operating days (Monday–Saturday) are seeded by the data
 # migration school/0002_seed_school_calendar.py.
+
+# Default bell times. Each day can override them (SchoolDayConfiguration).
+DEFAULT_DAY_START = "08:00"
+DEFAULT_PERIOD_MINUTES = 40
+DEFAULT_RECESS_MINUTES = 20
+MIN_PERIOD_MINUTES = 5
+MAX_PERIOD_MINUTES = 180
+MAX_RECESS_MINUTES = 120

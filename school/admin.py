@@ -8,7 +8,7 @@ from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import reverse
 
-from .day_schedule import get_week_schedule, weekly_teaching_slots
+from .day_schedule import get_day_schedule, get_week_schedule, weekly_teaching_slots
 from .forms import CopyRequirementsForm, CopyTeacherConfigurationForm, FillAvailabilityForm
 from .models import (
     ClassGroup,
@@ -64,6 +64,13 @@ class SchoolSettingsAdmin(admin.ModelAdmin):
                 ),
             },
         ),
+        (
+            "Default bell times",
+            {
+                "fields": ["day_start_time", "period_minutes", "recess_minutes"],
+                "description": "When period 1 starts and how long periods and recess last. Days may override these.",
+            },
+        ),
     ]
 
     def has_add_permission(self, request):
@@ -82,8 +89,17 @@ class SchoolSettingsAdmin(admin.ModelAdmin):
 
 @admin.register(SchoolDayConfiguration)
 class SchoolDayConfigurationAdmin(admin.ModelAdmin):
-    list_display = ["day", "is_operating", "periods", "recess_after_period", "effective_layout"]
-    list_editable = ["is_operating", "periods", "recess_after_period"]
+    list_display = [
+        "day",
+        "is_operating",
+        "periods",
+        "recess_after_period",
+        "start_time",
+        "period_minutes",
+        "recess_minutes",
+        "effective_layout",
+    ]
+    list_editable = ["is_operating", "periods", "recess_after_period", "start_time", "period_minutes", "recess_minutes"]
     ordering = ["day"]
 
     @admin.display(description="Effective layout")
@@ -94,7 +110,9 @@ class SchoolDayConfigurationAdmin(admin.ModelAdmin):
         periods = obj.effective_periods(settings)
         recess = obj.effective_recess_after(settings)
         recess_text = f"recess after period {recess}" if 0 < recess < periods else "no recess"
-        return f"{periods} periods, {recess_text}"
+        schedule = get_day_schedule(obj.day)
+        hours = f", {schedule.hours_label}" if schedule else ""
+        return f"{periods} periods, {recess_text}{hours}"
 
 
 # ==========================================================================

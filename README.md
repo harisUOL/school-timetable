@@ -26,8 +26,9 @@ python manage.py runserver
 
 Sign in at http://127.0.0.1:8000/. The admin is at `/admin/`.
 
-`migrate` seeds the school calendar (Monday–Saturday, 9 periods, recess after period 4)
-and the **Timetable Editor** and **Viewer** groups.
+`migrate` seeds the school calendar (Monday–Saturday, 9 periods, recess after period 4,
+08:00 start, 40-minute periods, 20-minute recess) and the **Timetable Editor** and
+**Viewer** groups. Change the week and bell times on the **Settings** page.
 
 Without a `.env`, management commands such as `migrate`, `test` and `seed_demo` still
 run on a throwaway secret key. Serving requests (`runserver`, WSGI, ASGI) refuses to
@@ -43,6 +44,7 @@ start until `SECRET_KEY` is set or `DEBUG=True`.
 | `python manage.py seed_demo` | Create or refresh the demo school. Idempotent. |
 | `python manage.py seed_demo --reset` | Remove the demo data, then seed it afresh |
 | `python manage.py seed_demo --remove` | Remove only the demo data; nothing else is touched |
+| `python manage.py import_allotment <file.xlsx>` | Import classes, subjects, teachers and requirements from an allotment workbook (`--dry-run`, `--report skipped.csv`). Leaves the school week alone. |
 | `python manage.py seed_demo --with-users` | Also create `demo_editor` / `demo_viewer` (password `demo-timetable`) |
 | `python manage.py generate_timetable` | Keep existing lessons, fill everything else, apply |
 | `python manage.py generate_timetable --keep locked` | Rebuild everything except locked lessons |
@@ -87,6 +89,12 @@ produces a complete, valid timetable (486 lessons for 10 classes).
     Each conflict links to its slots.
 - **Availability**: a teachers × days grid of daily capacities, saved all or nothing.
   An empty cell means no capacity record, so the teacher is unavailable that day.
+- **Settings** (administrators):
+  - the school week: open days, periods per day and the recess position;
+  - bell times: start time, period length and recess length, as defaults with per-day
+    overrides;
+  - a table of each day's period times.
+  Timetables, prints and exports show these times.
 - **Data Health**: configuration problems, as errors or warnings, each with a link to
   the admin page that fixes it.
 - **Generator**: run CP-SAT, review the proposal, and apply it. See below.

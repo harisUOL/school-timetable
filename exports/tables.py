@@ -22,7 +22,9 @@ class TextTable:
 
 def _grid_table(title, subtitle, grid, cell_text, extra_header=None, extra_cells=None):
     # The recess column stays narrow and shaded; it needs no heading.
-    header = ["Day"] + [c["label"] if c["kind"] != "recess" else "" for c in grid.columns]
+    header = ["Day"] + [
+        "" if c["kind"] == "recess" else "\n".join(filter(None, [c["label"], c.get("time")])) for c in grid.columns
+    ]
     header += [extra_header] if extra_header else []
     recess = {i + 1 for i, c in enumerate(grid.columns) if c["kind"] == "recess"}
     rows = []
@@ -34,7 +36,10 @@ def _grid_table(title, subtitle, grid, cell_text, extra_header=None, extra_cells
             elif cell.kind == selectors.NONE:
                 cells.append("—")
             else:
-                cells.append(cell_text(cell.entry) if cell.entry else "")
+                # A day whose bell times differ from the column heading names its own.
+                text = [cell.time_label] if cell.own_time else []
+                text += [cell_text(cell.entry)] if cell.entry else []
+                cells.append("\n".join(text))
         if extra_cells:
             cells.append(extra_cells(row))
         rows.append(cells)

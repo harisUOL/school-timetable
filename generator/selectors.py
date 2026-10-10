@@ -56,7 +56,7 @@ def proposal_grid(run, *, class_group=None, teacher=None):
 
     rows = []
     for schedule in week:
-        cells = row_cells(schedule, width, recess_after, proposed[schedule.day])
+        cells = row_cells(schedule, width, recess_after, proposed[schedule.day], columns)
         for cell in cells:
             if not cell.is_slot:
                 continue

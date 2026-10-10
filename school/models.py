@@ -5,6 +5,8 @@ Nothing in this module schedules lessons. Timetable entries live in the
 `scheduling` app, and all scheduling rules will live in its service layer.
 """
 
+import datetime
+
 from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -13,9 +15,14 @@ from django.db.models import Q
 from django.db.models.functions import Lower
 
 from .constants import (
+    DEFAULT_PERIOD_MINUTES,
     DEFAULT_PERIODS_PER_DAY,
     DEFAULT_RECESS_AFTER_PERIOD,
+    DEFAULT_RECESS_MINUTES,
+    MAX_PERIOD_MINUTES,
     MAX_PERIODS_PER_DAY,
+    MAX_RECESS_MINUTES,
+    MIN_PERIOD_MINUTES,
     Day,
 )
 
@@ -27,7 +34,7 @@ VALID_DAY_Q = Q(day__gte=min(Day.values), day__lte=max(Day.values))
 # ==========================================================================
 
 
-def validate_day_layout(day, periods, recess_after, is_operating):
+def validate_day_layout(day, periods, recess_after, is_operating, check_capacities=True):
     """
     Validate an *effective* day layout and protect existing data.
 
@@ -56,7 +63,7 @@ def validate_day_layout(day, periods, recess_after, is_operating):
             f"{max_allowed}. Clear them before reducing this day's periods."
         )
 
-    over_capacity = TeacherDailyAvailability.objects.filter(
+    over_capacity = check_capacities and TeacherDailyAvailability.objects.filter(
         day=day, max_periods__gt=max_allowed
     ).count()
     if over_capacity:
@@ -65,6 +72,21 @@ def validate_day_layout(day, periods, recess_after, is_operating):
             f"{max_allowed} periods. Lower them before reducing this day's periods."
         )
     return errors
+
+
+def validate_day_times(day, periods, recess_after, start, period_minutes, recess_minutes):
+    """The day's bell times must finish before midnight. Returns error messages."""
+    if start is None or not periods:
+        return []
+    recess = recess_minutes if 0 < recess_after < periods else 0
+    end = start.hour * 60 + start.minute + periods * period_minutes + recess
+    if end > 24 * 60:
+        return [f"{Day(day).label}: {periods} periods of {period_minutes} minutes from {start:%H:%M} run past midnight."]
+    return []
+
+
+def period_minutes_validators():
+    return [MinValueValidator(MIN_PERIOD_MINUTES), MaxValueValidator(MAX_PERIOD_MINUTES)]
 
 
 class SchoolSettings(models.Model):
@@ -85,6 +107,19 @@ class SchoolSettings(models.Model):
         default=DEFAULT_RECESS_AFTER_PERIOD,
         validators=[MaxValueValidator(MAX_PERIODS_PER_DAY - 1)],
         help_text="Recess follows this period. Use 0 for no recess.",
+    )
+    day_start_time = models.TimeField(
+        default=datetime.time(8, 0), help_text="When period 1 starts, unless a day overrides it."
+    )
+    period_minutes = models.PositiveSmallIntegerField(
+        default=DEFAULT_PERIOD_MINUTES,
+        validators=period_minutes_validators(),
+        help_text="Length of every period in minutes, unless a day overrides it.",
+    )
+    recess_minutes = models.PositiveSmallIntegerField(
+        default=DEFAULT_RECESS_MINUTES,
+        validators=[MaxValueValidator(MAX_RECESS_MINUTES)],
+        help_text="Length of recess in minutes, unless a day overrides it.",
     )
 
     class Meta:
@@ -117,13 +152,22 @@ class SchoolSettings(models.Model):
             errors.extend(
                 validate_day_layout(
                     config.day,
-                    config.periods or self.default_periods_per_day,
-                    config.recess_after_period
-                    if config.recess_after_period is not None
-                    else self.default_recess_after_period,
+                    config.effective_periods(self),
+                    config.effective_recess_after(self),
                     config.is_operating,
                 )
             )
+            if config.is_operating:
+                errors.extend(
+                    validate_day_times(
+                        config.day,
+                        config.effective_periods(self),
+                        config.effective_recess_after(self),
+                        config.effective_start_time(self),
+                        config.effective_period_minutes(self),
+                        config.effective_recess_minutes(self),
+                    )
+                )
         if errors:
             raise ValidationError(errors)
 
@@ -151,6 +195,21 @@ class SchoolDayConfiguration(models.Model):
         validators=[MaxValueValidator(MAX_PERIODS_PER_DAY - 1)],
         help_text="Leave blank to use the school default. Use 0 for no recess.",
     )
+    start_time = models.TimeField(
+        null=True, blank=True, help_text="When period 1 starts. Leave blank to use the school default."
+    )
+    period_minutes = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=period_minutes_validators(),
+        help_text="Period length in minutes. Leave blank to use the school default.",
+    )
+    recess_minutes = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MaxValueValidator(MAX_RECESS_MINUTES)],
+        help_text="Recess length in minutes. Leave blank to use the school default.",
+    )
 
     class Meta:
         ordering = ["day"]
@@ -172,6 +231,18 @@ class SchoolDayConfiguration(models.Model):
             return self.recess_after_period
         return settings.default_recess_after_period
 
+    def effective_start_time(self, settings=None):
+        settings = settings or SchoolSettings.load()
+        return self.start_time or settings.day_start_time
+
+    def effective_period_minutes(self, settings=None):
+        settings = settings or SchoolSettings.load()
+        return self.period_minutes or settings.period_minutes
+
+    def effective_recess_minutes(self, settings=None):
+        settings = settings or SchoolSettings.load()
+        return self.recess_minutes if self.recess_minutes is not None else settings.recess_minutes
+
     def clean(self):
         super().clean()
         if self.day is None:
@@ -183,6 +254,15 @@ class SchoolDayConfiguration(models.Model):
             self.effective_recess_after(settings),
             self.is_operating,
         )
+        if self.is_operating:
+            errors += validate_day_times(
+                self.day,
+                self.effective_periods(settings),
+                self.effective_recess_after(settings),
+                self.effective_start_time(settings),
+                self.effective_period_minutes(settings),
+                self.effective_recess_minutes(settings),
+            )
         if errors:
             raise ValidationError(errors)
 

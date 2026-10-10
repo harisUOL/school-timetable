@@ -8,6 +8,7 @@ from .health import group_issues, run_health_checks
 from .models import SchoolSettings
 from .permissions import RolePermissionMixin
 from .roles import CAPACITY_WRITE_PERMISSION
+from .week_settings import WeekSettingsForm
 
 
 class AvailabilityView(RolePermissionMixin, TemplateView):
@@ -52,7 +53,7 @@ class HealthView(RolePermissionMixin, TemplateView):
 
 
 class SettingsView(RolePermissionMixin, TemplateView):
-    """The school week and links into the admin. Administrators (superusers) only."""
+    """The school week, bell times and links into the admin. Administrators (superusers) only."""
 
     template_name = "school/settings.html"
     permission_required = "school.view_schoolsettings"
@@ -60,10 +61,21 @@ class SettingsView(RolePermissionMixin, TemplateView):
     def has_permission(self):
         return self.request.user.is_superuser
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, form=None, **kwargs):
         return super().get_context_data(
             school=SchoolSettings.load(),
             week=get_week_schedule(),
             weekly_slots=weekly_teaching_slots(),
+            form=form or WeekSettingsForm(),
             **kwargs,
         )
+
+    def post(self, request, *args, **kwargs):
+        form = WeekSettingsForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Nothing was saved: " + " ".join(form.errors))
+            return self.render_to_response(self.get_context_data(form=form), status=400)
+        changed = form.save()
+        note = f" {changed} teacher capacit{'y was' if changed == 1 else 'ies were'} adjusted to fit." if changed else ""
+        messages.success(request, "Saved the school week and bell times." + note)
+        return redirect("school:settings")

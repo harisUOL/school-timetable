@@ -20,6 +20,7 @@
 </form>
 
 <section class="card grid-card" aria-label="Weekly timetable for {{ teacher.name }}">
+  {% if grid.note %}<p class="muted grid-note">{{ grid.note }}</p>{% endif %}
   <div class="grid-scroll">
     <table class="timetable">
       <caption class="visually-hidden">Weekly timetable for {{ teacher.name }} across all classes</caption>

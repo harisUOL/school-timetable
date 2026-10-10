@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}{% if group %}{{ group.name }}{% else %}New timing group{% endif %}{% endblock %}
+{% block heading %}{% if group %}Timing group: {{ group.name }}{% else %}New timing group{% endif %}{% endblock %}
+{% block subheading %}<p class="muted"><a href="{% url 'school:settings' %}">Settings</a> · Grades in this group keep these bell times. Blank fields use the school week's value (shown in grey).</p>{% endblock %}
+
+{% block content %}
+<form method="post" class="card" novalidate>
+  {% csrf_token %}
+  {% if form.errors %}
+  <div class="alert alert-error" role="alert">
+    <p class="strong">Nothing was saved.</p>
+    <ul>{% for error in form.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+
+  <div class="form-inline settings-defaults">
+    {% with field=form.details.name %}
+    <div class="field">
+      <label for="{{ field.id_for_label }}">Name</label>
+      {{ field }}
+      {% for error in field.errors %}<div class="cell-error">{{ error }}</div>{% endfor %}
+    </div>
+    {% endwith %}
+    {% with field=form.details.order %}
+    <div class="field">
+      <label for="{{ field.id_for_label }}">Order</label>
+      {{ field }}
+      {% for error in field.errors %}<div class="cell-error">{{ error }}</div>{% endfor %}
+    </div>
+    {% endwith %}
+  </div>
+
+  <fieldset class="field">
+    <legend class="strong">Grades</legend>
+    <ul class="grade-choices">
+      {% for choice in form.details.grades %}<li>{{ choice.tag }} <label for="{{ choice.id_for_label }}">{{ choice.choice_label }}</label></li>{% empty %}<li class="muted">No grades yet.</li>{% endfor %}
+    </ul>
+    <small class="muted">{{ form.details.grades.help_text }}</small>
+  </fieldset>
+
+  <h3>Days</h3>
+  <div class="table-scroll">
+    <table class="table settings-days">
+      <thead>
+        <tr>
+          <th scope="col">Day</th>
+          <th scope="col" class="num">Periods</th>
+          <th scope="col" class="num">Recess after</th>
+          <th scope="col" class="num">Starts</th>
+          <th scope="col" class="num">Period (min)</th>
+          <th scope="col" class="num">Recess (min)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for day in form.days %}
+        <tr{% if day.errors %} class="row-error"{% endif %}>
+          <th scope="row">{{ day.label }}</th>
+          {% for field in day %}
+          <td class="num{% if field.errors %} cell-invalid{% endif %}">
+            {{ field }}
+            {% for error in field.errors %}<div class="cell-error">{{ error }}</div>{% endfor %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="empty">The school is not open on any day.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <label class="check">
+    <input type="checkbox" name="fit_capacities"{% if form.fit_capacities %} checked{% endif %}>
+    <span>Keep teachers' daily capacities in step: a teacher who could teach the whole day still can, and no capacity is left longer than the longest day.</span>
+  </label>
+
+  <div class="form-actions">
+    <a class="btn" href="{% url 'school:settings' %}">Cancel</a>
+    <button type="submit" class="btn btn-primary">Save timing group</button>
+  </div>
+</form>
+
+{% if group %}
+<form method="post" action="{% url 'school:timing_group_delete' group.pk %}" class="card danger-zone">
+  {% csrf_token %}
+  <h2>Delete this group</h2>
+  <p class="muted">Its grades go back to the school week. Refused if any lesson would then fall outside its class's day.</p>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-danger" data-confirm="Delete the timing group “{{ group.name }}”?">Delete timing group</button>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

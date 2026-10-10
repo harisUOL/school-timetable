@@ -363,3 +363,54 @@ Applying 486 lessons through the service takes about 5 s on SQLite.
   Settings page, so re-importing a sheet never undoes it.
 - The school's week is now Monday–Thursday 9 periods, Friday 6 and Saturday 9 (applied
   through the Settings form, which moved 180 full-day capacities with it).
+
+## Timing groups and clock-time clashes
+
+**Built**
+- **Timing groups** (`TimingGroup`, `TimingGroupDay`, `Grade.timing_group`): grades that keep
+  their own periods, recess and bell times on some or all days. A blank field inherits the
+  school week, and whether the school is open is still school-wide.
+- `school.day_schedule.Calendar` resolves the school week and every group into one
+  `DaySchedule` per class and day. Validation shared by the models, the admin and the
+  Settings page lives in `calendar_errors()` and `fit_capacities()`.
+- **Teacher clashes by clock time.** Groups ring different bells, so a teacher may not teach
+  two lessons whose times overlap, whatever their period numbers.
+  - Validators: `teacher_overlap()` replaces `teacher_slot_lesson()`. The message names the
+    other lesson's time, e.g. "… is already teaching 10A on Monday, period 3 (08:50–09:30)."
+  - Generator: for each teacher and day, at most one possible lesson may cover any lesson's
+    start time, which forbids every overlap exactly. Consecutive-run and gap penalties and
+    the matching quality metrics are counted on the teacher's *home* schedule for the day
+    (`generator/timeline.py`).
+  - The database constraints on (teacher, day, period) for live entries and proposals were
+    removed (migrations scheduling 0003 and generator 0002). They would wrongly forbid
+    lessons at the same period number but different times. No data is changed. The
+    services still validate under the teacher's row lock.
+- **Per-class layouts everywhere:**
+  - class grids, cells and slot options (which now include the period's time);
+  - requirement caps (`periods_per_week` up to the class's own week);
+  - data health and conflicts.
+  - Capacities are checked against the longest day any class has.
+- **Teacher timetables:** a teacher whose classes share one bell schedule gets the usual
+  grid. A teacher across groups gets each day's lessons in time order, each with its time
+  and the class's period numeral. The same applies to proposals, print, Excel and PDF.
+- **Settings:**
+  - bell times per group;
+  - a *Timing groups* list with add, edit and delete pages (name, grades, per-day layout,
+    keep capacities in step);
+  - groups can also be edited in the admin.
+  - Deleting a group is refused if any lesson would fall outside its class's day.
+
+**Changed**
+- CLAUDE.md: a teacher never teaches overlapping lessons, and rule 5 covers timing groups
+  and clock-time clashes. Agreed with the school.
+- The school's 2026-27 timings:
+
+  | Group | Mon–Thu, Sat | Friday |
+  |---|---|---|
+  | Nursery, Sr. Nursery | 09:00–12:00: 4 × 40 min, 20-min recess after period 2 | 09:00–11:00: 3 × 40 min, no recess |
+  | Prep | 09:00–13:10: 6 × 40 min, 10-min recess after period 3 | 09:00–11:00: 3 × 40 min, no recess |
+  | Class I–V | 07:30–13:10: 8 × 40 min, 20-min recess after period 4 | 07:30–12:00: 6 × 40 min, 30-min recess after period 3 |
+  | Class VI–X | 07:30–13:45: 9 × 40 min, 15-min recess after period 4 | 07:00–12:00: 6 × 45 min, 30-min recess after period 3 |
+
+  The school week defaults match Class VI–X. A trial generation on the real data placed
+  all 1769 periods with no overlapping teacher lessons.

@@ -84,6 +84,7 @@
     {% for key, label in legend %}<li><span class="load-swatch diff-{{ key }}" aria-hidden="true"></span>{{ label }}</li>{% endfor %}
   </ul>
   {% if grid %}
+  {% if grid.note %}<p class="muted grid-note">{{ grid.note }}</p>{% endif %}
   <div class="grid-scroll">
     <table class="timetable">
       <caption class="visually-hidden">Proposed timetable for {% if view == "teacher" %}{{ selected_teacher }}{% else %}{{ selected_class }}{% endif %}</caption>

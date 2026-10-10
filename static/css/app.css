@@ -256,6 +256,14 @@ input[aria-invalid="true"] { border-color: var(--error); background: var(--error
 form h3 { margin: 1.25rem 0 .25rem; font-size: 1rem; }
 form .check { margin-top: 1rem; align-items: flex-start; }
 .nowrap { white-space: nowrap; }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.card-head h2 { margin: 0; }
+.bell-heading { margin: 1.25rem 0 .5rem; font-size: 1rem; }
+.bell-heading .muted { font-weight: 400; }
+.grade-choices { display: flex; flex-wrap: wrap; gap: .35rem .9rem; margin: .25rem 0 0; padding: 0; list-style: none; }
+.grade-choices li { display: flex; gap: .4rem; align-items: center; }
+.grade-choices label { font-weight: 400; }
+.danger-zone { border-color: var(--error); }
 .bell-list { display: flex; flex-wrap: wrap; gap: .35rem; margin: 0; padding: 0; list-style: none; }
 .bell { padding: .15rem .5rem; border: 1px solid var(--border); border-radius: 999px; font-size: .8rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .bell-name { color: var(--text-muted); }
@@ -337,6 +345,7 @@ button.slot:hover { border-color: var(--primary); box-shadow: 0 0 0 1px var(--pr
 .slot-lesson { background: var(--info-bg); border-color: var(--lesson-border); }
 .slot.is-locked { box-shadow: inset 0 0 0 2px var(--warning); }
 .slot-period { position: absolute; top: 2px; left: 5px; font-size: .65rem; color: var(--text-muted); }
+.grid-note { margin: 0 0 .5rem; font-size: .85rem; }
 .slot-time { order: 9; font-size: .62rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .timetable .col-time { display: block; font-size: .66rem; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .slot-subject { font-weight: 700; font-size: .85rem; }

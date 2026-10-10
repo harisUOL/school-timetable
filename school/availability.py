@@ -7,12 +7,13 @@ cell is validated through `TeacherDailyAvailability.full_clean()`, and the
 whole grid is saved in one transaction or not at all.
 """
 
+import dataclasses
 from dataclasses import dataclass, field
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from .day_schedule import get_week_schedule
+from .day_schedule import Calendar
 from .models import Teacher, TeacherDailyAvailability
 
 
@@ -48,7 +49,9 @@ class Row:
 
 class CapacityGrid:
     def __init__(self, teachers=None):
-        self.week = get_week_schedule()
+        # Each day's "max" is the longest day any class has (timing groups differ).
+        calendar = Calendar.load()
+        self.week = [dataclasses.replace(s, periods=calendar.max_periods(s.day)) for s in calendar.school_week]
         self.teachers = list(
             teachers if teachers is not None else Teacher.objects.filter(is_active=True)
         )

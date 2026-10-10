@@ -7,8 +7,10 @@ from collections import defaultdict
 
 from django.conf import settings
 
-from school.day_schedule import get_week_schedule
+from school.day_schedule import Calendar
 from school.models import SubjectRequirement, TeacherDailyAvailability, TeacherSubject
+
+from .timeline import home_period, home_schedule
 
 METRIC_LABELS = [
     ("placed", "Required lessons placed", "higher"),
@@ -21,13 +23,14 @@ METRIC_LABELS = [
 ]
 
 
-def score(lessons, *, week=None, requirements=None, capacities=None, qualified=None):
+def score(lessons, *, calendar=None, requirements=None, capacities=None, qualified=None):
     """
     `lessons`: iterable of objects with class_id/class_group_id, day, period,
-    subject_id and teacher_id attributes.
+    subject_id and teacher_id attributes. Teachers' runs and gaps are counted
+    on each teacher's home bell schedule for the day (generator/timeline.py).
     """
-    week = week if week is not None else get_week_schedule()
-    days = {s.day: s for s in week}
+    calendar = calendar if calendar is not None else Calendar.load()
+    days = {s.day: s for s in calendar.school_week}
     if requirements is None:
         requirements = {
             (c, s): n
@@ -43,13 +46,13 @@ def score(lessons, *, week=None, requirements=None, capacities=None, qualified=N
 
     per_class_subject = defaultdict(int)
     per_class_subject_day = defaultdict(int)
-    teacher_slots = defaultdict(set)
+    teacher_lessons = defaultdict(list)  # (teacher, day) -> [(class, period)]
     teacher_week = defaultdict(int)
     for lesson in lessons:
         class_id = getattr(lesson, "class_id", None) or lesson.class_group_id
         per_class_subject[(class_id, lesson.subject_id)] += 1
         per_class_subject_day[(class_id, lesson.subject_id, lesson.day)] += 1
-        teacher_slots[(lesson.teacher_id, lesson.day)].add(lesson.period)
+        teacher_lessons[(lesson.teacher_id, lesson.day)].append((class_id, lesson.period))
         teacher_week[lesson.teacher_id] += 1
 
     required = sum(requirements.values())
@@ -69,9 +72,17 @@ def score(lessons, *, week=None, requirements=None, capacities=None, qualified=N
 
     run_limit = settings.GENERATOR["MAX_CONSECUTIVE"]
     long_runs = gaps = 0
-    for (teacher_id, d), periods in teacher_slots.items():
-        schedule = days.get(d)
-        if schedule is None or not periods:
+    for (teacher_id, d), items in teacher_lessons.items():
+        schedule = home_schedule(calendar, d, [c for c, _p in items]) if d in days else None
+        if schedule is None:
+            continue
+        periods = set()
+        for c, p in items:
+            interval = calendar.interval(c, d, p)
+            mapped = home_period(schedule, interval) if interval else None
+            if mapped is not None:
+                periods.add(mapped)
+        if not periods:
             continue
         gaps += (max(periods) - min(periods) + 1) - len(periods)
         run = 0

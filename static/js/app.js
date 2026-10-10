@@ -94,6 +94,12 @@ document.addEventListener("submit", (event) => {
     event.preventDefault();
     return;
   }
+  // A submit button with data-confirm asks first (e.g. deleting a timing group).
+  const question = event.submitter?.dataset.confirm;
+  if (question && !window.confirm(question)) {
+    event.preventDefault();
+    return;
+  }
   form.dataset.submitting = "true";
   form.setAttribute("aria-busy", "true");
   const submitter = event.submitter;

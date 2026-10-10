@@ -9,6 +9,9 @@ The rules read the timetable through a *state* object:
 
 - `DatabaseState` (the default) runs small queries against live rows. The
   service layer uses it inside its transaction, after locking teacher rows.
+Teacher clashes are decided by clock time: a teacher may not have two lessons
+whose times overlap, whatever their period numbers (see `school.day_schedule`).
+
 - `MemoryState` holds a timetable in memory: either a snapshot of the live one
   (cheap bulk reads for the slot-options modal) or a hypothetical one (the
   generator re-validates a whole proposal with exactly the same rules).
@@ -23,7 +26,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from school.constants import Day
-from school.day_schedule import get_week_schedule
+from school.day_schedule import Calendar, overlaps
 from school.models import SubjectRequirement, TeacherDailyAvailability, TeacherSubject
 
 from .models import TimetableEntry
@@ -77,6 +80,36 @@ def slot_text(day, period):
     return f"{Day(day).label}, period {period}"
 
 
+def timed_slot_text(state, class_id, day, period):
+    """“Monday, period 3 (09:20–10:00)” — the times as that class's bells ring."""
+    schedule = state.class_day_schedule(class_id, day)
+    time = schedule.period_label(period) if schedule else ""
+    return f"{slot_text(day, period)} ({time})" if time else slot_text(day, period)
+
+
+def clash_violation(teacher, clash, state):
+    where = timed_slot_text(state, clash.class_id, clash.day, clash.period)
+    return Violation(
+        TEACHER_CLASH,
+        f"{teacher} is already teaching {clash.class_label} on {where}.",
+        {"class_id": clash.class_id, "class": clash.class_label, "period": clash.period},
+    )
+
+
+def _first_overlap(calendar, lessons, class_id, day, period):
+    """The first lesson (in another class) whose time overlaps the slot."""
+    target = calendar.interval(class_id, day, period)
+    if target is None:
+        return None
+    for lesson in sorted(lessons, key=lambda l: (l.period, l.class_label)):
+        if lesson.class_id == class_id:
+            continue
+        other = calendar.interval(lesson.class_id, lesson.day, lesson.period)
+        if other is not None and overlaps(target, other):
+            return lesson
+    return None
+
+
 # --------------------------------------------------------------------------
 # State implementations
 # --------------------------------------------------------------------------
@@ -85,13 +118,17 @@ def slot_text(day, period):
 class DatabaseState:
     """Reads the live timetable with targeted queries."""
 
-    def __init__(self):
-        self._week = None
+    def __init__(self, calendar=None):
+        self._calendar = calendar
 
-    def day_schedule(self, day):
-        if self._week is None:
-            self._week = {s.day: s for s in get_week_schedule()}
-        return self._week.get(day)
+    @property
+    def calendar(self):
+        if self._calendar is None:
+            self._calendar = Calendar.load()
+        return self._calendar
+
+    def class_day_schedule(self, class_id, day):
+        return self.calendar.class_day(class_id, day)
 
     def _entries(self, exclude):
         qs = TimetableEntry.objects.all()
@@ -120,14 +157,10 @@ class DatabaseState:
         )
         return self._lesson(entry) if entry else None
 
-    def teacher_slot_lesson(self, teacher_id, day, period, exclude=None):
-        entry = (
-            self._entries(exclude)
-            .with_related()
-            .filter(teacher_id=teacher_id, day=day, period=period)
-            .first()
-        )
-        return self._lesson(entry) if entry else None
+    def teacher_overlap(self, teacher_id, class_id, day, period, exclude=None):
+        """The teacher's lesson in another class whose time overlaps this slot, if any."""
+        entries = self._entries(exclude).with_related().filter(teacher_id=teacher_id, day=day)
+        return _first_overlap(self.calendar, [self._lesson(e) for e in entries], class_id, day, period)
 
     def teacher_day_count(self, teacher_id, day, exclude=None):
         return self._entries(exclude).filter(teacher_id=teacher_id, day=day).count()
@@ -157,14 +190,14 @@ class MemoryState:
     qualifications) is loaded once; lessons can be added and removed freely.
     """
 
-    def __init__(self, lessons=(), *, week=None, capacities=None, requirements=None, qualified=None):
-        self.week = week if week is not None else {s.day: s for s in get_week_schedule()}
+    def __init__(self, lessons=(), *, calendar=None, capacities=None, requirements=None, qualified=None):
+        self.calendar = calendar if calendar is not None else Calendar.load()
+        self.week = {s.day: s for s in self.calendar.school_week}  # the operating days
         self.capacities = capacities if capacities is not None else _load_capacities()
         self.requirements = requirements if requirements is not None else _load_requirements()
         self.qualified = qualified if qualified is not None else _load_qualifications()
         self.lessons = {}
         self._class_slot = {}
-        self._teacher_slot = {}
         self._teacher_day = defaultdict(set)
         self._class_subject = defaultdict(set)
         for lesson in lessons:
@@ -178,19 +211,17 @@ class MemoryState:
     def add(self, lesson):
         self.lessons[lesson.key] = lesson
         self._class_slot[(lesson.class_id, lesson.day, lesson.period)] = lesson
-        self._teacher_slot[(lesson.teacher_id, lesson.day, lesson.period)] = lesson
         self._teacher_day[(lesson.teacher_id, lesson.day)].add(lesson.key)
         self._class_subject[(lesson.class_id, lesson.subject_id)].add(lesson.key)
 
     def remove(self, key):
         lesson = self.lessons.pop(key)
         self._class_slot.pop((lesson.class_id, lesson.day, lesson.period), None)
-        self._teacher_slot.pop((lesson.teacher_id, lesson.day, lesson.period), None)
         self._teacher_day[(lesson.teacher_id, lesson.day)].discard(key)
         self._class_subject[(lesson.class_id, lesson.subject_id)].discard(key)
 
-    def day_schedule(self, day):
-        return self.week.get(day)
+    def class_day_schedule(self, class_id, day):
+        return self.calendar.class_day(class_id, day)
 
     @staticmethod
     def _unless(lesson, exclude):
@@ -199,8 +230,10 @@ class MemoryState:
     def class_slot_lesson(self, class_id, day, period, exclude=None):
         return self._unless(self._class_slot.get((class_id, day, period)), exclude)
 
-    def teacher_slot_lesson(self, teacher_id, day, period, exclude=None):
-        return self._unless(self._teacher_slot.get((teacher_id, day, period)), exclude)
+    def teacher_overlap(self, teacher_id, class_id, day, period, exclude=None):
+        keys = self._teacher_day.get((teacher_id, day), ())
+        lessons = [self.lessons[k] for k in keys if k != exclude]
+        return _first_overlap(self.calendar, lessons, class_id, day, period)
 
     def teacher_day_count(self, teacher_id, day, exclude=None):
         keys = self._teacher_day.get((teacher_id, day), ())
@@ -262,7 +295,7 @@ def validate_assignment(
     exclude = exclude_entry_id
     violations = []
 
-    schedule = state.day_schedule(day) if isinstance(day, int) else None
+    schedule = state.class_day_schedule(class_group.pk, day) if isinstance(day, int) else None
     slot_ok = schedule is not None and schedule.is_valid_period(period)
     if schedule is None:
         label = Day(day).label if day in Day.values else str(day)
@@ -273,7 +306,7 @@ def validate_assignment(
         violations.append(
             Violation(
                 INVALID_SLOT,
-                f"{schedule.label} has teaching periods 1–{schedule.periods} only.",
+                f"{class_group} has teaching periods 1–{schedule.periods} only on {schedule.label}.",
                 {"day": day, "period": period},
             )
         )
@@ -318,15 +351,10 @@ def validate_assignment(
             )
 
     if slot_ok:
-        clash = state.teacher_slot_lesson(teacher.pk, day, period, exclude)
-        if clash and clash.class_id != class_group.pk:
-            violations.append(
-                Violation(
-                    TEACHER_CLASH,
-                    f"{teacher} is already teaching {clash.class_label} on {slot_text(day, period)}.",
-                    {"class_id": clash.class_id, "class": clash.class_label},
-                )
-            )
+        # Clock time, not period number: timing groups ring different bells.
+        clash = state.teacher_overlap(teacher.pk, class_group.pk, day, period, exclude)
+        if clash:
+            violations.append(clash_violation(teacher, clash, state))
 
         capacity = state.capacity(teacher.pk, day)
         if capacity is None:

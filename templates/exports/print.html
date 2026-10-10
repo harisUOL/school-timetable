@@ -23,6 +23,7 @@
       </div>
       <p class="muted print-meta">{{ school_name }}<br>Printed {{ printed|date:"j M Y" }}</p>
     </header>
+    {% if page.grid.note %}<p class="muted grid-note">{{ page.grid.note }}</p>{% endif %}
     <table class="timetable print-grid">
       <thead>
         <tr>

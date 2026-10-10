@@ -18,6 +18,7 @@ from django.test import TestCase
 from django.urls import URLPattern, URLResolver, get_resolver, reverse
 
 from generator.models import GenerationRun
+from school.models import TimingGroup
 from school.roles import EDITOR_GROUP, VIEWER_GROUP
 from school.tests.factories import make_class, make_requirement, make_subject, make_teacher, make_user
 
@@ -40,6 +41,8 @@ READ_PAGES = {
     "school:availability": (lambda o: [], ALL),
     "school:health": (lambda o: [], ALL),
     "school:settings": (lambda o: [], ADMIN),
+    "school:timing_group_new": (lambda o: [], ADMIN),
+    "school:timing_group_edit": (lambda o: [o.group.pk], ADMIN),
     "generator:index": (lambda o: [], ALL),
     "generator:run_detail": (lambda o: [o.gen_run.pk], ALL),
     "exports:print_classes": (lambda o: [], ALL),
@@ -61,6 +64,11 @@ WRITES = {
     "school:availability": (lambda o: [], lambda o: {}, False),
     "generator:index": (lambda o: [], lambda o: {"keep_mode": "keep_all_existing", "mode": "complete", "time_limit": 1, "random_seed": 0}, False),
     "generator:apply_run": (lambda o: [o.gen_run.pk], lambda o: {}, False),
+}
+
+# Administrator-only writes: name -> (args factory, body factory)
+ADMIN_WRITES = {
+    "school:timing_group_delete": (lambda o: [o.group.pk], lambda o: {}),
 }
 
 
@@ -85,6 +93,7 @@ class RoleMatrixTests(TestCase):
         cls.s = make_subject()
         cls.t = make_teacher(subjects=[cls.s], capacity=5)
         make_requirement(cls.c, cls.s, periods=3, teacher=cls.t)
+        cls.group = TimingGroup.objects.create(name="Juniors")
         cls.gen_run = GenerationRun.objects.create(status=GenerationRun.Status.INFEASIBLE, message="test")
         cls.users = {
             "nobody": make_user("nobody"),
@@ -106,7 +115,7 @@ class RoleMatrixTests(TestCase):
         return self.client.post(url, body_for(self))
 
     def test_every_project_url_is_covered(self):
-        covered = set(READ_PAGES) | set(WRITES)
+        covered = set(READ_PAGES) | set(WRITES) | set(ADMIN_WRITES)
         self.assertEqual(project_url_names() - covered, set(), "Add new URLs to the role matrix")
 
     def test_anonymous_is_redirected_to_login(self):
@@ -147,6 +156,15 @@ class RoleMatrixTests(TestCase):
                 # Allowed through: 200, a redirect after success, or 400 for a rule violation.
                 self.assertIn(self.post(name).status_code, (200, 302, 400))
         self.assertEqual(self.client.get("/admin/").status_code, 302)  # not staff
+
+    def test_only_administrators_change_the_calendar(self):
+        for role in ("nobody", "viewer", "editor"):
+            self.client.force_login(self.users[role])
+            for name, (args_for, body_for) in ADMIN_WRITES.items():
+                with self.subTest(role=role, post=name):
+                    response = self.client.post(reverse(name, args=args_for(self)), body_for(self))
+                    self.assertEqual(response.status_code, 403)
+        self.assertTrue(TimingGroup.objects.filter(pk=self.group.pk).exists())
 
     def test_superuser_can_open_everything(self):
         self.client.force_login(self.users["admin"])

@@ -1,20 +1,19 @@
 """
-The school week editor on the Settings page: default day layout and bell
-times, plus per-day overrides (blank inherits the default).
+Forms behind the Settings page: the school week, and timing groups.
 
-The whole week is validated as one change, against the new values rather than
-the stored ones, and saved in one transaction or not at all. The same rules as
-the models apply (`validate_day_layout`, `validate_day_times`); lessons beyond
-a shortened day always block the save.
+Both validate the calendar they are about to save (`Calendar.with_changes()` +
+`calendar_errors()`), against the new values rather than the stored ones, and
+save in one transaction or not at all. Lessons that would fall outside their
+class's day always block the save.
 
-Teachers' daily capacities must fit the day. With `fit_capacities` ticked,
-a capacity equal to the old full day follows the day's new length (up or
-down) and any other capacity above the new length is lowered to it, so a
+Teachers' daily capacities must fit the longest day any class has. With
+`fit_capacities` ticked, a capacity equal to the old longest day follows the
+new one (up or down) and any other capacity above it is lowered to it, so a
 change such as "Friday 9 → 6, Saturday 6 → 9" is one save. Unticked, a
 shortened day is refused while capacities exceed it, as in the admin.
 """
 
-from dataclasses import dataclass
+import copy
 
 from django import forms
 from django.db import transaction
@@ -26,15 +25,11 @@ from .constants import (
     MIN_PERIOD_MINUTES,
     Day,
 )
-from .models import (
-    SchoolDayConfiguration,
-    SchoolSettings,
-    TeacherDailyAvailability,
-    validate_day_layout,
-    validate_day_times,
-)
+from .day_schedule import Calendar, calendar_errors, fit_capacities
+from .models import Grade, SchoolDayConfiguration, TimingGroup, TimingGroupDay
 
 TIME_WIDGET = forms.TimeInput(attrs={"type": "time"}, format="%H:%M")
+LAYOUT_FIELDS = ["periods", "recess_after_period", "start_time", "period_minutes", "recess_minutes"]
 
 
 class DefaultsForm(forms.Form):
@@ -51,7 +46,7 @@ class DefaultsForm(forms.Form):
 
 
 class DayForm(forms.Form):
-    """One weekday. Blank fields inherit the school default."""
+    """One weekday's layout. Blank fields inherit (the school default, or the school's day)."""
 
     is_operating = forms.BooleanField(required=False, label="Open")
     periods = forms.IntegerField(required=False, min_value=1, max_value=MAX_PERIODS_PER_DAY, label="Periods")
@@ -64,84 +59,61 @@ class DayForm(forms.Form):
     )
     recess_minutes = forms.IntegerField(required=False, min_value=0, max_value=MAX_RECESS_MINUTES, label="Recess (min)")
 
-    def __init__(self, *args, day, config, **kwargs):
+    def __init__(self, *args, day, row=None, with_open=True, placeholders=None, **kwargs):
         self.day = day
-        self.config = config
-        super().__init__(*args, **kwargs)
+        self.row = row
+        initial = {f: getattr(row, f) for f in (["is_operating"] if with_open else []) + LAYOUT_FIELDS} if row else {}
+        super().__init__(*args, initial=initial, **kwargs)
+        if not with_open:
+            del self.fields["is_operating"]
+        for name, field in self.fields.items():
+            attrs = {"aria-label": f"{self.label}: {field.label}"}
+            if placeholders and placeholders.get(name) is not None:
+                attrs["placeholder"] = placeholders[name]
+            if isinstance(field, forms.IntegerField):
+                attrs["class"] = "input-num"
+            field.widget.attrs.update(attrs)
 
     @property
     def label(self):
         return Day(self.day).label
 
-
-@dataclass
-class Layout:
-    """A day's effective layout, from stored or submitted values."""
-
-    is_operating: bool
-    periods: int
-    recess_after: int
-    start_time: object
-    period_minutes: int
-    recess_minutes: int
-
-    @property
-    def length(self):
-        return self.periods if self.is_operating else 0
+    def layout(self):
+        return {f: self.cleaned_data[f] for f in LAYOUT_FIELDS}
 
 
-def stored_layout(config, settings):
-    if config is None:
-        return Layout(False, 0, 0, None, 0, 0)
-    return Layout(
-        config.is_operating,
-        config.effective_periods(settings),
-        config.effective_recess_after(settings),
-        config.effective_start_time(settings),
-        config.effective_period_minutes(settings),
-        config.effective_recess_minutes(settings),
-    )
+def _placeholders(schedule):
+    return {
+        "periods": schedule.periods,
+        "recess_after_period": schedule.recess_after,
+        "start_time": f"{schedule.start_time:%H:%M}",
+        "period_minutes": schedule.period_minutes,
+        "recess_minutes": schedule.recess_minutes,
+    }
 
 
-def _inherit(value, default):
-    return default if value is None else value
+def _bind_all(*forms_):
+    """is_valid() on every form, so each one shows its own errors."""
+    return all([form.is_valid() for form in forms_])
+
+
+# --------------------------------------------------------------------------
+# The school week
+# --------------------------------------------------------------------------
 
 
 class WeekSettingsForm:
-    FIELDS = ["is_operating", "periods", "recess_after_period", "start_time", "period_minutes", "recess_minutes"]
-
     def __init__(self, data=None):
-        self.settings = SchoolSettings.load()
-        self.configs = {c.day: c for c in SchoolDayConfiguration.objects.all()}
+        self.calendar = Calendar.load()
+        self.settings = self.calendar.settings
         self.defaults = DefaultsForm(
             data,
             prefix="school",
-            initial={
-                "school_name": self.settings.school_name,
-                "day_start_time": self.settings.day_start_time,
-                "period_minutes": self.settings.period_minutes,
-                "default_periods_per_day": self.settings.default_periods_per_day,
-                "default_recess_after_period": self.settings.default_recess_after_period,
-                "recess_minutes": self.settings.recess_minutes,
-            },
+            initial={name: getattr(self.settings, name) for name in DefaultsForm.base_fields},
         )
-        self.days = [
-            DayForm(
-                data,
-                prefix=f"day-{day}",
-                day=day,
-                config=self.configs.get(day),
-                initial={f: getattr(self.configs[day], f) for f in self.FIELDS} if day in self.configs else {},
-            )
-            for day in Day.values
-        ]
-        self._decorate()
-        self.fit_capacities = True if data is None else data.get("fit_capacities") == "on"
-        self.errors = []
-        self.capacity_changes = 0
-
-    def _decorate(self):
-        """Accessible names for the inputs, and the inherited default as each blank field's placeholder."""
+        for field in self.defaults.fields.values():
+            if isinstance(field, forms.IntegerField):
+                field.widget.attrs["class"] = "input-num"
         s = self.settings
         defaults = {
             "periods": s.default_periods_per_day,
@@ -150,79 +122,156 @@ class WeekSettingsForm:
             "period_minutes": s.period_minutes,
             "recess_minutes": s.recess_minutes,
         }
-        for form in self.days:
-            for name, field in form.fields.items():
-                attrs = {"aria-label": f"{form.label}: {field.label}"}
-                if name in defaults:
-                    attrs["placeholder"] = defaults[name]
-                if isinstance(field, forms.IntegerField):
-                    attrs["class"] = "input-num"
-                field.widget.attrs.update(attrs)
-        for name, field in self.defaults.fields.items():
-            if isinstance(field, forms.IntegerField):
-                field.widget.attrs["class"] = "input-num"
-
-    def new_layout(self, form):
-        d, s = form.cleaned_data, self.defaults.cleaned_data
-        return Layout(
-            d["is_operating"],
-            _inherit(d["periods"], s["default_periods_per_day"]),
-            _inherit(d["recess_after_period"], s["default_recess_after_period"]),
-            _inherit(d["start_time"], s["day_start_time"]),
-            _inherit(d["period_minutes"], s["period_minutes"]),
-            _inherit(d["recess_minutes"], s["recess_minutes"]),
-        )
+        self.days = [
+            DayForm(data, prefix=f"day-{day}", day=day, row=self.calendar.configs.get(day), placeholders=defaults)
+            for day in Day.values
+        ]
+        self.fit_capacities = True if data is None else data.get("fit_capacities") == "on"
+        self.errors = []
 
     def is_valid(self):
-        valid = self.defaults.is_valid()
-        valid = all([form.is_valid() for form in self.days]) and valid
-        if not valid:
+        if not _bind_all(self.defaults, *self.days):
             self.errors.append("Some fields need attention.")
             return False
-        if not any(form.cleaned_data["is_operating"] for form in self.days):
-            self.errors.append("At least one day must be open.")
+        settings = copy.copy(self.settings)
+        for name, value in self.defaults.cleaned_data.items():
+            setattr(settings, name, value)
+        configs = {}
         for form in self.days:
-            new = self.new_layout(form)
-            # Capacities are brought into line on save when fit_capacities is ticked.
-            self.errors += validate_day_layout(
-                form.day, new.periods, new.recess_after, new.is_operating, check_capacities=not self.fit_capacities
-            )
-            if new.is_operating:
-                self.errors += validate_day_times(
-                    form.day, new.periods, new.recess_after, new.start_time, new.period_minutes, new.recess_minutes
-                )
+            config = copy.copy(form.row) if form.row else SchoolDayConfiguration(day=form.day)
+            config.is_operating = form.cleaned_data["is_operating"]
+            for name, value in form.layout().items():
+                setattr(config, name, value)
+            configs[form.day] = config
+        self.new_settings, self.new_configs = settings, configs
+        self.new_calendar = self.calendar.with_changes(settings=settings, configs=configs)
+        self.errors = calendar_errors(self.new_calendar, self.calendar, check_capacities=not self.fit_capacities)
         return not self.errors
 
     @transaction.atomic
     def save(self):
         """Save the week. Returns the number of teacher capacities that changed."""
-        if self.fit_capacities:
-            for form in self.days:
-                old = stored_layout(self.configs.get(form.day), self.settings).length
-                new = self.new_layout(form).length
-                if old != new:
-                    self.capacity_changes += fit_capacities(form.day, old, new)
-
-        for name, value in self.defaults.cleaned_data.items():
-            setattr(self.settings, name, value)
-        self.settings.save()
-        for form in self.days:
-            config = form.config or SchoolDayConfiguration(day=form.day)
-            for name in self.FIELDS:
-                setattr(config, name, form.cleaned_data[name])
+        changed = fit_capacities(self.calendar, self.new_calendar) if self.fit_capacities else 0
+        self.new_settings.save()
+        for config in self.new_configs.values():
             config.save()
-        return self.capacity_changes
+        return changed
 
 
-def fit_capacities(day, old_length, new_length):
-    """
-    Bring one day's capacities into line with its new length. A full-day
-    capacity (equal to the old length) follows the new length; anything else
-    above the new length is lowered to it. Returns the number of records changed.
-    """
-    records = TeacherDailyAvailability.objects.filter(day=day)
-    changed = 0
-    if old_length and new_length:
-        changed += records.filter(max_periods=old_length).update(max_periods=new_length)
-    changed += records.filter(max_periods__gt=new_length).update(max_periods=new_length)
+# --------------------------------------------------------------------------
+# Timing groups
+# --------------------------------------------------------------------------
+
+NEW_GROUP = "new"
+
+
+class GroupDetailsForm(forms.Form):
+    name = forms.CharField(max_length=100, help_text="e.g. “Class I–V”.")
+    order = forms.IntegerField(min_value=0, initial=0, help_text="Lower numbers are listed first.")
+    grades = forms.ModelMultipleChoiceField(
+        queryset=Grade.objects.select_related("timing_group").order_by("order", "name"),
+        widget=forms.CheckboxSelectMultiple,
+        required=False,
+        help_text="A grade belongs to one group. Ticking a grade from another group moves it here.",
+    )
+
+    def __init__(self, *args, group=None, **kwargs):
+        self.group = group
+        super().__init__(*args, **kwargs)
+        self.fields["grades"].label_from_instance = self._grade_label
+        self.fields["order"].widget.attrs["class"] = "input-num"
+
+    def _grade_label(self, grade):
+        other = grade.timing_group if grade.timing_group_id and grade.timing_group != self.group else None
+        return f"{grade.name} (now in {other})" if other else grade.name
+
+    def clean_name(self):
+        name = self.cleaned_data["name"].strip()
+        clash = TimingGroup.objects.filter(name__iexact=name)
+        if self.group is not None:
+            clash = clash.exclude(pk=self.group.pk)
+        if clash.exists():
+            raise forms.ValidationError(f"There is already a timing group called “{name}”.")
+        return name
+
+
+class TimingGroupForm:
+    def __init__(self, data=None, *, group=None):
+        self.group = group
+        self.calendar = Calendar.load()
+        initial = {}
+        if group is not None:
+            initial = {"name": group.name, "order": group.order, "grades": list(group.grades.all())}
+        self.details = GroupDetailsForm(data, prefix="group", group=group, initial=initial)
+        rows = self.calendar.group_days.get(group.pk, {}) if group else {}
+        self.days = [
+            DayForm(
+                data,
+                prefix=f"day-{s.day}",
+                day=s.day,
+                row=rows.get(s.day),
+                with_open=False,
+                placeholders=_placeholders(s),
+            )
+            for s in self.calendar.school_week
+        ]
+        self.fit_capacities = True if data is None else data.get("fit_capacities") == "on"
+        self.errors = []
+
+    @property
+    def key(self):
+        return self.group.pk if self.group else NEW_GROUP
+
+    def is_valid(self):
+        if not _bind_all(self.details, *self.days):
+            self.errors.append("Some fields need attention.")
+            return False
+        self.rows = {}
+        for form in self.days:
+            layout = form.layout()
+            if any(value is not None for value in layout.values()):
+                self.rows[form.day] = TimingGroupDay(day=form.day, **layout)
+        grades = {g.pk for g in self.details.cleaned_data["grades"]}
+        grade_group = {g: self.key for g in grades}
+        for grade, group in self.calendar.grade_group.items():
+            if group == self.key and grade not in grades:
+                grade_group[grade] = None
+        self.grade_ids = grades
+        self.new_calendar = self.calendar.with_changes(
+            groups={self.key: self.details.cleaned_data["name"]},
+            group_days={self.key: self.rows},
+            grade_group=grade_group,
+        )
+        self.errors = calendar_errors(self.new_calendar, self.calendar, check_capacities=not self.fit_capacities)
+        return not self.errors
+
+    @transaction.atomic
+    def save(self):
+        """Save the group. Returns (group, number of teacher capacities changed)."""
+        changed = fit_capacities(self.calendar, self.new_calendar) if self.fit_capacities else 0
+        group = self.group or TimingGroup()
+        group.name = self.details.cleaned_data["name"]
+        group.order = self.details.cleaned_data["order"]
+        group.save()
+        Grade.objects.filter(timing_group=group).exclude(pk__in=self.grade_ids).update(timing_group=None)
+        Grade.objects.filter(pk__in=self.grade_ids).update(timing_group=group)
+        group.days.exclude(day__in=self.rows).delete()
+        for day, row in self.rows.items():
+            TimingGroupDay.objects.update_or_create(
+                group=group, day=day, defaults={f: getattr(row, f) for f in LAYOUT_FIELDS}
+            )
+        return group, changed
+
+
+def delete_group_errors(group):
+    calendar = Calendar.load()
+    return calendar_errors(calendar.with_changes(removed_groups={group.pk}), calendar, check_capacities=False)
+
+
+@transaction.atomic
+def delete_group(group):
+    """Remove a group; its grades go back to the school week. Returns capacities changed."""
+    calendar = Calendar.load()
+    changed = fit_capacities(calendar, calendar.with_changes(removed_groups={group.pk}))
+    group.delete()
     return changed

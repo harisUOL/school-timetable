@@ -89,7 +89,6 @@ class ProposedLesson(models.Model):
         ordering = ["class_group", "day", "period"]
         constraints = [
             models.UniqueConstraint(fields=["run", "class_group", "day", "period"], name="proposal_class_slot_unique"),
-            models.UniqueConstraint(fields=["run", "teacher", "day", "period"], name="proposal_teacher_slot_unique"),
         ]
 
     def __str__(self):

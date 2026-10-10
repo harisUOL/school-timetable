@@ -14,7 +14,9 @@ Hard constraints
 - Lessons per requirement: exactly the periods still needed (complete mode)
   or at most that many (best-effort mode, which maximises lessons placed).
 - At most one lesson per class per slot.
-- At most one lesson per teacher per slot, across all classes.
+- A teacher's lessons never overlap in time, across all classes. Timing groups
+  ring different bells, so this is by clock time: for every moment a lesson
+  could start, at most one of the teacher's possible lessons covers it.
 - Lessons per teacher per day <= max_periods (kept lessons count too).
 - Kept lessons are constants: they occupy their slots and capacity.
 
@@ -23,6 +25,7 @@ Soft constraints (weights in settings.GENERATOR["WEIGHTS"])
 - Spread each subject across the week (reward each distinct day used).
 - Avoid more than MAX_CONSECUTIVE lessons in a row for a teacher (recess breaks a run).
 - Minimise free periods between a teacher's first and last lesson of a day.
+  Both are counted on the teacher's home bell schedule (generator/timeline.py).
 - Balance utilisation among teachers who share a subject.
 
 Configuration is read through `school.day_schedule` and the scheduling read
@@ -36,10 +39,12 @@ from dataclasses import dataclass, field
 from django.conf import settings
 from ortools.sat.python import cp_model
 
-from school.day_schedule import get_week_schedule
+from school.day_schedule import Calendar, overlaps
 from school.models import ClassGroup, Subject, SubjectRequirement, Teacher, TeacherDailyAvailability
 from scheduling.models import TimetableEntry
 from scheduling.validators import Lesson, _load_qualifications
+
+from .timeline import home_period, home_schedule
 
 # --------------------------------------------------------------------------
 # Problem data
@@ -57,7 +62,7 @@ class Requirement:
 
 @dataclass
 class Problem:
-    week: list  # DaySchedule
+    calendar: Calendar
     classes: dict  # id -> label
     subjects: dict  # id -> name
     teachers: dict  # active teachers: id -> name
@@ -68,8 +73,12 @@ class Problem:
     max_subject_per_day: int = 2
 
     @property
-    def slots(self):
-        return [(s.day, p) for s in self.week for p in s.period_numbers]
+    def week(self):
+        """The school's operating days (layouts differ per class: use class_week)."""
+        return self.calendar.school_week
+
+    def class_week(self, class_id):
+        return self.calendar.class_week(class_id)
 
     def label(self, requirement):
         return f"{self.classes[requirement.class_id]} {self.subjects[requirement.subject_id]}"
@@ -94,7 +103,7 @@ def load_problem(*, keep_locked_only):
         for e in entries
     ]
     return Problem(
-        week=get_week_schedule(),
+        calendar=Calendar.load(),
         classes={c.pk: str(c) for c in ClassGroup.objects.with_structure()},
         subjects=dict(Subject.objects.values_list("pk", "name")),
         teachers=dict(Teacher.objects.filter(is_active=True).values_list("pk", "name")),
@@ -124,7 +133,12 @@ class Analysis:
         self.problem = problem
         days = {s.day for s in problem.week}
         self.class_busy = {(k.class_id, k.day, k.period) for k in problem.kept}
-        self.teacher_busy = {(k.teacher_id, k.day, k.period) for k in problem.kept}
+        # Clock times the teacher is already busy with kept lessons: {(teacher, day): [(start, end)]}
+        self.teacher_kept = defaultdict(list)
+        for k in problem.kept:
+            interval = problem.calendar.interval(k.class_id, k.day, k.period)
+            if interval:
+                self.teacher_kept[(k.teacher_id, k.day)].append(interval)
         kept_day = defaultdict(int)
         kept_req = defaultdict(int)
         self.kept_teachers = defaultdict(set)
@@ -158,6 +172,10 @@ class Analysis:
             for t in p.teachers
             if (t, r.subject_id) in p.qualified and any(self.cap_left[(t, s.day)] for s in p.week)
         )
+
+    def teacher_free(self, teacher_id, day, interval):
+        """True when no kept lesson of the teacher overlaps the interval."""
+        return not any(overlaps(interval, busy) for busy in self.teacher_kept.get((teacher_id, day), ()))
 
     def weekly_cap_left(self, teacher_id):
         return sum(self.cap_left[(teacher_id, s.day)] for s in self.problem.week)
@@ -236,8 +254,11 @@ class _Builder:
         self.requirements = {r.id: r for r in problem.requirements}
         self.x = {}
         self.penalties = []  # (weight, linear expression)
+        self.kept_by_teacher_day = defaultdict(list)
+        for k in problem.kept:
+            self.kept_by_teacher_day[(k.teacher_id, k.day)].append(k)
         self.by_class_slot = defaultdict(list)
-        self.by_teacher_slot = defaultdict(list)
+        self.by_teacher_time = defaultdict(list)  # (t, d) -> [((start, end), var, class_id)]
         self.by_teacher_day = defaultdict(list)
         self.by_req = defaultdict(list)
         self.by_req_day = defaultdict(list)
@@ -261,18 +282,19 @@ class _Builder:
             if not self.a.need[r.id]:
                 continue
             for t in self.a.candidates[r.id]:
-                for day in self.p.week:
+                for day in self.p.class_week(r.class_id):
                     if not self.a.cap_left[(t, day.day)]:
                         continue
                     for period in day.period_numbers:
                         d = day.day
-                        if (r.class_id, d, period) in self.a.class_busy or (t, d, period) in self.a.teacher_busy:
+                        interval = day.interval(period)
+                        if (r.class_id, d, period) in self.a.class_busy or not self.a.teacher_free(t, d, interval):
                             continue
                         var = self.m.NewBoolVar(f"x_r{r.id}_t{t}_d{d}_p{period}")
                         key = (r.id, t, d, period)
                         self.x[key] = var
                         self.by_class_slot[(r.class_id, d, period)].append(var)
-                        self.by_teacher_slot[(t, d, period)].append(var)
+                        self.by_teacher_time[(t, d)].append((interval, var, r.class_id))
                         self.by_teacher_day[(t, d)].append(var)
                         self.by_req[r.id].append(var)
                         self.by_req_day[(r.id, d)].append(var)
@@ -302,9 +324,8 @@ class _Builder:
         for group in self.by_class_slot.values():
             if len(group) > 1:
                 self.m.AddAtMostOne(group)
-        for group in self.by_teacher_slot.values():
-            if len(group) > 1:
-                self.m.AddAtMostOne(group)
+        for options in self.by_teacher_time.values():
+            self._no_overlap(options)
         for (t, d), group in self.by_teacher_day.items():
             cap = self.a.cap_left[(t, d)]
             if len(group) > cap:
@@ -327,45 +348,76 @@ class _Builder:
             self.m.AddMaxEquality(used, group)
             self.penalties.append((-self.w["subject_spread_day"], used))
 
-    def _busy(self, t, d, period):
-        """A bool that is true when teacher t teaches in (d, period); None if never possible."""
-        if (t, d, period) in self.a.teacher_busy:
-            return True
-        group = self.by_teacher_slot.get((t, d, period))
-        if not group:
-            return None
-        if len(group) == 1:
-            return group[0]
-        busy = self.m.NewBoolVar(f"busy_t{t}_d{d}_p{period}")
-        self.m.Add(busy == sum(group))
-        return busy
+    def _no_overlap(self, options):
+        """
+        Two intervals overlap exactly when one contains the other's start, so
+        "at most one lesson covers each start time" forbids every overlap.
+        """
+        seen = set()
+        for start in sorted({interval[0] for interval, _var, _c in options}):
+            covering = [var for (s, e), var, _c in options if s <= start < e]
+            key = frozenset(v.Index() for v in covering)
+            if len(covering) > 1 and key not in seen:
+                seen.add(key)
+                self.m.AddAtMostOne(covering)
+
+    def _home_busy(self, t, d):
+        """The teacher's day on their home bell schedule: (home day, {period: bool | True | None})."""
+        options = self.by_teacher_time.get((t, d), [])
+        kept = self.kept_by_teacher_day.get((t, d), [])
+        home = home_schedule(self.p.calendar, d, [c for _i, _v, c in options] + [k.class_id for k in kept])
+        if home is None:
+            return None, {}
+        mapped = defaultdict(list)
+        for interval, var, _c in options:
+            period = home_period(home, interval)
+            if period is not None:
+                mapped[period].append(var)
+        fixed = set()
+        for k in kept:
+            interval = self.p.calendar.interval(k.class_id, k.day, k.period)
+            period = home_period(home, interval) if interval else None
+            if period is not None:
+                fixed.add(period)
+        busy = {}
+        for period in home.period_numbers:
+            if period in fixed:
+                busy[period] = True
+            elif not mapped.get(period):
+                busy[period] = None
+            elif len(mapped[period]) == 1:
+                busy[period] = mapped[period][0]
+            else:
+                b = self.m.NewBoolVar(f"busy_t{t}_d{d}_p{period}")
+                self.m.AddMaxEquality(b, mapped[period])
+                busy[period] = b
+        return home, busy
 
     def _consecutive_and_gaps(self):
         run_limit = settings.GENERATOR["MAX_CONSECUTIVE"]
-        teachers = {t for (t, _d) in self.by_teacher_day}
-        for t in teachers:
-            for day in self.p.week:
-                d = day.day
-                if not self.by_teacher_day.get((t, d)):
-                    continue
-                busy = {p: self._busy(t, d, p) for p in day.period_numbers}
-                # Consecutive runs: a recess splits the day into two segments.
-                segments = (
-                    [list(range(1, day.recess_after + 1)), list(range(day.recess_after + 1, day.periods + 1))]
-                    if day.has_recess
-                    else [list(day.period_numbers)]
-                )
-                for segment in segments:
-                    for i in range(len(segment) - run_limit):
-                        window = [busy[p] for p in segment[i : i + run_limit + 1]]
-                        if any(b is None for b in window):
-                            continue
-                        variables = [b for b in window if b is not True]
-                        constant = len(window) - len(variables)
-                        over = self.m.NewBoolVar(f"run_t{t}_d{d}_p{segment[i]}")
-                        self.m.Add(sum(variables) + constant <= run_limit + over)
-                        self.penalties.append((self.w["teacher_consecutive"], over))
-                self._gaps(t, d, day, busy)
+        for (t, d) in list(self.by_teacher_day):
+            if not self.by_teacher_day.get((t, d)):
+                continue
+            day, busy = self._home_busy(t, d)
+            if day is None:
+                continue
+            # Consecutive runs: a recess splits the day into two segments.
+            segments = (
+                [list(range(1, day.recess_after + 1)), list(range(day.recess_after + 1, day.periods + 1))]
+                if day.has_recess
+                else [list(day.period_numbers)]
+            )
+            for segment in segments:
+                for i in range(len(segment) - run_limit):
+                    window = [busy[p] for p in segment[i : i + run_limit + 1]]
+                    if any(b is None for b in window):
+                        continue
+                    variables = [b for b in window if b is not True]
+                    constant = len(window) - len(variables)
+                    over = self.m.NewBoolVar(f"run_t{t}_d{d}_p{segment[i]}")
+                    self.m.Add(sum(variables) + constant <= run_limit + over)
+                    self.penalties.append((self.w["teacher_consecutive"], over))
+            self._gaps(t, d, day, busy)
 
     def _gaps(self, t, d, day, busy):
         periods = list(day.period_numbers)

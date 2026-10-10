@@ -1,14 +1,15 @@
 from django.contrib import messages
-from django.shortcuts import redirect
+from django.shortcuts import get_object_or_404, redirect
+from django.views import View
 from django.views.generic import TemplateView
 
 from .availability import CapacityGrid
-from .day_schedule import get_week_schedule, weekly_teaching_slots
+from .day_schedule import SCHOOL_WEEK, Calendar
 from .health import group_issues, run_health_checks
-from .models import SchoolSettings
+from .models import Grade, SchoolSettings, TimingGroup
 from .permissions import RolePermissionMixin
 from .roles import CAPACITY_WRITE_PERMISSION
-from .week_settings import WeekSettingsForm
+from .week_settings import TimingGroupForm, WeekSettingsForm, delete_group, delete_group_errors
 
 
 class AvailabilityView(RolePermissionMixin, TemplateView):
@@ -52,20 +53,52 @@ class HealthView(RolePermissionMixin, TemplateView):
         )
 
 
-class SettingsView(RolePermissionMixin, TemplateView):
-    """The school week, bell times and links into the admin. Administrators (superusers) only."""
+class AdministratorOnlyMixin(RolePermissionMixin):
+    """The school's calendar is configuration: administrators (superusers) only."""
 
-    template_name = "school/settings.html"
     permission_required = "school.view_schoolsettings"
 
     def has_permission(self):
         return self.request.user.is_superuser
 
+
+def _capacity_note(changed):
+    if not changed:
+        return ""
+    return f" {changed} teacher capacit{'y was' if changed == 1 else 'ies were'} adjusted to fit."
+
+
+def schedule_summaries(calendar):
+    """Each bell schedule with the grades that follow it, for the Settings page."""
+    grades = list(Grade.objects.order_by("order", "name"))
+    result = []
+    for key, name, week in calendar.schedules():
+        members = [g.name for g in grades if (calendar.grade_group.get(g.pk) or SCHOOL_WEEK) == key]
+        if key is SCHOOL_WEEK and calendar.groups and not members:
+            continue  # every grade has its own group: the school week only sets defaults
+        result.append(
+            {
+                "key": key,
+                "name": name if key is not SCHOOL_WEEK else ("Other grades" if calendar.groups else "All grades"),
+                "grades": members,
+                "week": week,
+                "weekly_slots": sum(s.periods for s in week),
+            }
+        )
+    return result
+
+
+class SettingsView(AdministratorOnlyMixin, TemplateView):
+    """The school week, timing groups and bell times."""
+
+    template_name = "school/settings.html"
+
     def get_context_data(self, form=None, **kwargs):
+        calendar = Calendar.load()
         return super().get_context_data(
             school=SchoolSettings.load(),
-            week=get_week_schedule(),
-            weekly_slots=weekly_teaching_slots(),
+            schedules=schedule_summaries(calendar),
+            groups=TimingGroup.objects.prefetch_related("grades"),
             form=form or WeekSettingsForm(),
             **kwargs,
         )
@@ -76,6 +109,44 @@ class SettingsView(RolePermissionMixin, TemplateView):
             messages.error(request, "Nothing was saved: " + " ".join(form.errors))
             return self.render_to_response(self.get_context_data(form=form), status=400)
         changed = form.save()
-        note = f" {changed} teacher capacit{'y was' if changed == 1 else 'ies were'} adjusted to fit." if changed else ""
-        messages.success(request, "Saved the school week and bell times." + note)
+        messages.success(request, "Saved the school week and bell times." + _capacity_note(changed))
+        return redirect("school:settings")
+
+
+class TimingGroupView(AdministratorOnlyMixin, TemplateView):
+    """Create (no pk) or edit a timing group."""
+
+    template_name = "school/timing_group.html"
+
+    def get_group(self):
+        pk = self.kwargs.get("pk")
+        return get_object_or_404(TimingGroup, pk=pk) if pk else None
+
+    def get_context_data(self, form=None, **kwargs):
+        group = self.get_group()
+        return super().get_context_data(group=group, form=form or TimingGroupForm(group=group), **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        group = self.get_group()
+        form = TimingGroupForm(request.POST, group=group)
+        if not form.is_valid():
+            messages.error(request, "Nothing was saved: " + " ".join(form.errors))
+            return self.render_to_response(self.get_context_data(form=form), status=400)
+        group, changed = form.save()
+        messages.success(request, f"Saved the timing group “{group}”." + _capacity_note(changed))
+        return redirect("school:settings")
+
+
+class TimingGroupDeleteView(AdministratorOnlyMixin, View):
+    def post(self, request, pk):
+        group = get_object_or_404(TimingGroup, pk=pk)
+        errors = delete_group_errors(group)
+        if errors:
+            messages.error(request, f"“{group}” was not deleted: " + " ".join(errors))
+            return redirect("school:timing_group_edit", pk=pk)
+        name = str(group)
+        changed = delete_group(group)
+        messages.success(
+            request, f"Deleted the timing group “{name}”. Its grades now follow the school week." + _capacity_note(changed)
+        )
         return redirect("school:settings")

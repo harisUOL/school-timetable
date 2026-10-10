@@ -17,7 +17,7 @@ from django.conf import settings
 from django.urls import reverse
 
 from .constants import Day
-from .day_schedule import get_week_schedule
+from .day_schedule import Calendar
 from .models import SubjectRequirement, Teacher, TeacherDailyAvailability
 
 ERROR = "error"
@@ -74,8 +74,8 @@ class _Snapshot:
     """Everything the checks need, loaded in a handful of queries."""
 
     def __init__(self):
-        self.week = {s.day: s for s in get_week_schedule()}
-        self.weekly_slots = sum(s.periods for s in self.week.values())
+        self.calendar = Calendar.load()
+        self.week = {s.day: s for s in self.calendar.school_week}
         self.teachers = {t.pk: t for t in Teacher.objects.all()}
         self.qualified = defaultdict(set)  # subject_id -> {teacher_id}
         for teacher_id, subject_id in Teacher.subjects.through.objects.values_list(
@@ -85,10 +85,9 @@ class _Snapshot:
         self.capacity_records = list(TeacherDailyAvailability.objects.select_related("teacher"))
         self.capacity = defaultdict(dict)  # teacher_id -> {day: usable max}
         for record in self.capacity_records:
-            schedule = self.week.get(record.day)
-            if schedule:
+            if record.day in self.week:
                 self.capacity[record.teacher_id][record.day] = min(
-                    record.max_periods, schedule.periods
+                    record.max_periods, self.calendar.max_periods(record.day)
                 )
         self.requirements = list(
             SubjectRequirement.objects.select_related(
@@ -185,11 +184,12 @@ def _classes_over_slots(snap):
         totals[req.class_group_id] += req.periods_per_week
         classes[req.class_group_id] = req.class_group
     for class_id, total in totals.items():
-        if total > snap.weekly_slots:
+        slots = snap.calendar.class_weekly_slots(class_id)
+        if total > slots:
             yield Issue(
                 "CLASS_OVER_SLOTS",
                 f"{classes[class_id]} requires {total} periods a week but has only "
-                f"{snap.weekly_slots} teaching slots.",
+                f"{slots} teaching slots.",
                 admin_change(classes[class_id]),
                 "Edit class requirements",
             )
@@ -289,7 +289,7 @@ def _teachers_without_capacity(snap):
 def _capacity_above_day_length(snap):
     for record in snap.capacity_records:
         schedule = snap.week.get(record.day)
-        length = schedule.periods if schedule else 0
+        length = snap.calendar.max_periods(record.day) if schedule else 0
         if record.max_periods > length:
             where = (
                 f"{schedule.label} has only {length} periods"

@@ -5,8 +5,9 @@ Administrators configure teachers, subjects, daily teaching capacities and weekl
 subject requirements. Editors then build class timetables by hand, generate a complete
 whole-school timetable automatically with Google OR-Tools CP-SAT, or combine the two.
 
-All class timetables share one pool of teachers. A teacher is never in two classes in
-the same slot, and their daily capacity counts lessons across every class.
+All class timetables share one pool of teachers. A teacher never teaches two lessons at
+overlapping times, even when their classes ring different bells, and their daily capacity
+counts lessons across every class.
 
 ## Setup
 
@@ -93,8 +94,12 @@ produces a complete, valid timetable (486 lessons for 10 classes).
   - the school week: open days, periods per day and the recess position;
   - bell times: start time, period length and recess length, as defaults with per-day
     overrides;
-  - a table of each day's period times.
-  Timetables, prints and exports show these times.
+  - **timing groups**: grades with their own hours (e.g. Nursery 09:00–12:00, Class VI–X
+    07:30–13:45), each with per-day layouts;
+  - a table of every group's period times.
+  Timetables, prints and exports show these times. Teacher clashes are checked by clock
+  time across groups. A teacher who teaches in several groups sees each day's lessons in
+  time order.
 - **Data Health**: configuration problems, as errors or warnings, each with a link to
   the admin page that fixes it.
 - **Generator**: run CP-SAT, review the proposal, and apply it. See below.
@@ -139,7 +144,8 @@ produces a complete, valid timetable (486 lessons for 10 classes).
    - Hard rules:
      - each requirement gets exactly its periods (or at most, in best-effort mode);
      - one lesson per class per slot;
-     - one lesson per teacher per slot, across the school;
+     - a teacher's lessons never overlap in time, across the school (by clock time, since
+       timing groups ring different bells);
      - lessons per teacher per day ≤ `max_periods`;
      - kept lessons stay where they are and use up capacity.
 3. **Soft rules** are weighted, and never traded against hard rules.
@@ -191,7 +197,7 @@ produces a complete, valid timetable (486 lessons for 10 classes).
 |---|---|
 | `config/` | Settings (env-driven), URLs, sidebar navigation |
 | `school/` | Configuration: calendar, grades, sections, classes, subjects, teachers, capacities, requirements; data health; roles; availability grid; `seed_demo` |
-| `school/day_schedule.py` | The only source of operating days, periods per day and recess position |
+| `school/day_schedule.py` | The only source of operating days, periods, recess and bell times: the school week and timing groups, resolved per class by `Calendar` |
 | `scheduling/validators.py` | Pure rule checks returning violations. Used by the services, the dialog, the conflict report and the generator |
 | `scheduling/services.py` | The only code that writes `TimetableEntry` rows (atomic, teacher row locks, optimistic concurrency, audit log) |
 | `scheduling/selectors.py` | Read side: grids, progress, loads, slot options, workloads, conflicts |

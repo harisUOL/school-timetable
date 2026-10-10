@@ -1,3 +1,5 @@
+import dataclasses
+
 from django.contrib import admin, messages
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.core.exceptions import ValidationError
@@ -8,7 +10,7 @@ from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import reverse
 
-from .day_schedule import get_day_schedule, get_week_schedule, weekly_teaching_slots
+from .day_schedule import Calendar, get_day_schedule, get_week_schedule
 from .forms import CopyRequirementsForm, CopyTeacherConfigurationForm, FillAvailabilityForm
 from .models import (
     ClassGroup,
@@ -21,6 +23,8 @@ from .models import (
     Teacher,
     TeacherDailyAvailability,
     TeacherSubject,
+    TimingGroup,
+    TimingGroupDay,
 )
 
 ACTION_FORM_TEMPLATE = "admin/action_form.html"
@@ -115,6 +119,24 @@ class SchoolDayConfigurationAdmin(admin.ModelAdmin):
         return f"{periods} periods, {recess_text}{hours}"
 
 
+class TimingGroupDayInline(admin.TabularInline):
+    model = TimingGroupDay
+    extra = 0
+    fields = ["day", "periods", "recess_after_period", "start_time", "period_minutes", "recess_minutes"]
+    verbose_name_plural = "days with their own layout (blank fields use the school's)"
+
+
+@admin.register(TimingGroup)
+class TimingGroupAdmin(admin.ModelAdmin):
+    list_display = ["name", "order", "grade_list"]
+    list_editable = ["order"]
+    inlines = [TimingGroupDayInline]
+
+    @admin.display(description="Grades")
+    def grade_list(self, obj):
+        return ", ".join(g.name for g in obj.grades.all()) or "—"
+
+
 # ==========================================================================
 # School structure
 # ==========================================================================
@@ -122,8 +144,8 @@ class SchoolDayConfigurationAdmin(admin.ModelAdmin):
 
 @admin.register(Grade)
 class GradeAdmin(admin.ModelAdmin):
-    list_display = ["__str__", "name", "order", "class_count"]
-    list_editable = ["order"]
+    list_display = ["__str__", "name", "order", "timing_group", "class_count"]
+    list_editable = ["order", "timing_group"]
     search_fields = ["name"]
 
     def get_queryset(self, request):
@@ -168,11 +190,12 @@ class ClassGroupAdmin(admin.ModelAdmin):
 
     def changelist_view(self, request, extra_context=None):
         # Computed once per page rather than once per row.
-        self._weekly_slots = weekly_teaching_slots()
+        self._calendar = Calendar.load()
         return super().changelist_view(request, extra_context)
 
-    def _slots(self):
-        return getattr(self, "_weekly_slots", None) or weekly_teaching_slots()
+    def _slots(self, obj):
+        calendar = getattr(self, "_calendar", None) or Calendar.load()
+        return calendar.class_weekly_slots(obj.pk)
 
     @admin.display(description="Subjects", ordering="_subject_count")
     def subject_count(self, obj):
@@ -180,11 +203,11 @@ class ClassGroupAdmin(admin.ModelAdmin):
 
     @admin.display(description="Required / week", ordering="_required")
     def required_periods(self, obj):
-        return f"{obj._required or 0} / {self._slots()}"
+        return f"{obj._required or 0} / {self._slots(obj)}"
 
     @admin.display(description="Status")
     def load_status(self, obj):
-        required, slots = obj._required or 0, self._slots()
+        required, slots = obj._required or 0, self._slots(obj)
         if required > slots:
             return f"⚠ Over by {required - slots}"
         if required == slots:
@@ -378,7 +401,8 @@ class TeacherAdmin(admin.ModelAdmin):
     @transaction.atomic
     def _fill_availability(teachers, max_periods, *, overwrite):
         written, capped = 0, set()
-        week = get_week_schedule()
+        calendar = Calendar.load()
+        week = [dataclasses.replace(s, periods=calendar.max_periods(s.day)) for s in calendar.school_week]
         for teacher in teachers:
             existing = set(teacher.daily_availability.values_list("day", flat=True))
             for day in week:

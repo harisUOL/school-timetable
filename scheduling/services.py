@@ -9,8 +9,9 @@ functions. Each one:
    id order before counting capacity (no deadlocks between two writers);
 3. validates with `scheduling.validators` (a replacement excludes the entry
    being replaced, so its period is never counted twice);
-4. turns an `IntegrityError` from the uniqueness constraints into the same
-   friendly clash message the validator gives;
+4. turns an `IntegrityError` from the class-slot constraint into the same
+   friendly message the validator gives (teacher clashes depend on clock
+   times, so they are checked under the teacher row lock, not by a constraint);
 5. writes a `TimetableAuditLog` row.
 
 Optimistic concurrency: callers that act on an existing lesson pass
@@ -120,10 +121,9 @@ def _audit(user, action, class_group, *, day=None, period=None, before=None, aft
 def _clash_from_integrity_error(class_group, day, period, teacher, exclude):
     """Explain a unique-constraint failure the way the validator would."""
     state = v.DatabaseState()
-    clash = state.teacher_slot_lesson(teacher.pk, day, period, exclude)
+    clash = state.teacher_overlap(teacher.pk, class_group.pk, day, period, exclude)
     if clash:
-        message = f"{teacher} is already teaching {clash.class_label} on {v.slot_text(day, period)}."
-        return v.Violation(v.TEACHER_CLASH, message, {"class_id": clash.class_id, "class": clash.class_label})
+        return v.clash_violation(teacher, clash, state)
     occupant = state.class_slot_lesson(class_group.pk, day, period, exclude)
     if occupant:
         return v.Violation(

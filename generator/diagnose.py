@@ -27,7 +27,7 @@ def structural_bottlenecks(problem, analysis=None):
     reasons = []
     week = {s.day: s for s in p.week}
     free_slots = {
-        c: {(s.day, n) for s in p.week for n in s.period_numbers if (c, s.day, n) not in a.class_busy}
+        c: {(s.day, n) for s in p.class_week(c) for n in s.period_numbers if (c, s.day, n) not in a.class_busy}
         for c in p.classes
     }
 
@@ -93,7 +93,9 @@ def structural_bottlenecks(problem, analysis=None):
         fit = 0
         for d in week:
             common = sum(
-                1 for (dd, n) in free_slots[c] if dd == d and (t, d, n) not in a.teacher_busy
+                1
+                for (dd, n) in free_slots[c]
+                if dd == d and a.teacher_free(t, d, p.calendar.interval(c, d, n))
             )
             fit += min(common, a.cap_left[(t, d)])
         if need > fit:

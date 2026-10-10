@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from django.db.models import Count
 
 from school.constants import Day
-from school.day_schedule import get_week_schedule
+from school.day_schedule import SCHOOL_WEEK, Calendar, get_class_week, get_week_schedule
 from school.models import SubjectRequirement, Teacher, TeacherDailyAvailability
 
 from . import validators as v
@@ -86,6 +86,7 @@ class Grid:
     rows: list
     filled: int
     total_slots: int
+    note: str = ""  # shown above the grid, e.g. why a teacher's lessons are listed by time
 
 
 def row_cells(schedule, width, recess_after, entries_by_period, columns=None):
@@ -151,7 +152,7 @@ def grid_header(week):
 
 
 def class_grid(class_group):
-    week = get_week_schedule()
+    week = get_class_week(class_group)
     width, recess_after, columns = grid_header(week)
     entries = defaultdict(dict)
     for entry in TimetableEntry.objects.with_related().filter(class_group=class_group):
@@ -169,8 +170,10 @@ def class_cell(class_group, day, period):
     entry = TimetableEntry.objects.with_related().filter(
         class_group=class_group, day=day, period=period
     ).first()
-    schedule = next(s for s in get_week_schedule() if s.day == day)
-    return Cell(LESSON if entry else EMPTY, day, schedule.label, period, entry)
+    schedule = next(s for s in get_class_week(class_group) if s.day == day)
+    cell = Cell(LESSON if entry else EMPTY, day, schedule.label, period, entry)
+    cell.time_label = schedule.period_label(period)
+    return cell
 
 
 # --------------------------------------------------------------------------
@@ -253,7 +256,7 @@ def requirement_progress(class_group):
         subjects=subjects,
         required=sum(s.required for s in subjects),
         assigned=sum(min(s.assigned, s.required) for s in subjects),
-        weekly_slots=sum(s.periods for s in get_week_schedule()),
+        weekly_slots=sum(s.periods for s in get_class_week(class_group)),
     )
 
 
@@ -319,7 +322,7 @@ def slot_options(class_group, day, period):
     count, exactly as a replacement would be validated.
     """
     state = v.MemoryState.from_database()
-    schedule = state.day_schedule(day)
+    schedule = state.class_day_schedule(class_group.pk, day)
     if schedule is None or not schedule.is_valid_period(period):
         raise ValueError(f"Not a teaching slot: day {day}, period {period}")
 
@@ -397,7 +400,7 @@ def slot_options(class_group, day, period):
     return {
         "class": {"id": class_group.pk, "label": str(class_group)},
         "day": {"value": day, "label": schedule.label},
-        "period": {"number": period, "roman": roman(period)},
+        "period": {"number": period, "roman": roman(period), "time": schedule.period_label(period)},
         "entry": (
             {
                 "id": entry.pk,
@@ -553,25 +556,90 @@ class TeacherRow:
     load: LoadCell
 
 
+def teacher_week(calendar, class_ids):
+    """
+    The bell schedule a teacher's grid can follow: the one week every class in
+    `class_ids` shares, or None when they span timing groups with different
+    bells (the grid then lists each day's lessons in time order instead).
+    """
+    groups = {calendar.group_of_class(c) for c in class_ids}
+    layouts = {
+        tuple((s.day, s.periods, s.recess_after, s.start_time, s.period_minutes, s.recess_minutes) for s in calendar.week(g))
+        for g in groups
+    }
+    if len(layouts) > 1:
+        return None
+    return calendar.week(next(iter(groups), SCHOOL_WEEK))
+
+
+MIXED_NOTE = (
+    "This teacher teaches classes with different bell times, so each day lists their "
+    "lessons in time order. The numeral is the class's period."
+)
+
+
+def agenda(calendar, by_day, make_cell):
+    """
+    Columns "1st, 2nd …" and one row of cells per operating day, in time order.
+    `by_day`: {day: [(class_id, period, payload)]}; `make_cell(day, period, payload)` builds a slot Cell.
+    """
+    week = calendar.school_week
+    width = max((len(items) for items in by_day.values()), default=0) or 1
+    columns = [{"kind": "period", "label": str(i), "period": i, "time": ""} for i in range(1, width + 1)]
+    rows = []
+    for s in week:
+        items = sorted(by_day.get(s.day, []), key=lambda i: (calendar.interval(i[0], s.day, i[1]) or (0, 0), i[1]))
+        cells = []
+        for class_id, period, payload in items:
+            cell = make_cell(s, period, payload)
+            interval = calendar.interval(class_id, s.day, period)
+            schedule = calendar.class_day(class_id, s.day)
+            cell.time_label = schedule.period_label(period) if interval else ""
+            cell.own_time = bool(cell.time_label)
+            cells.append(cell)
+        cells += [Cell(NONE, s.day, s.label, None) for _ in range(width - len(cells))]
+        rows.append((s, cells))
+    return columns, rows
+
+
 def teacher_grid(teacher):
-    week = get_week_schedule()
-    width, recess_after, columns = grid_header(week)
-    entries = defaultdict(dict)
-    for entry in TimetableEntry.objects.with_related().filter(teacher=teacher):
-        entries[entry.day][entry.period] = entry
+    calendar = Calendar.load()
+    lessons = list(TimetableEntry.objects.with_related().filter(teacher=teacher))
+    class_ids = {e.class_group_id for e in lessons} or set(
+        teacher.designated_requirements.values_list("class_group_id", flat=True)
+    )
     caps = dict(teacher.daily_availability.values_list("day", "max_periods"))
-    rows = [
-        TeacherRow(
-            s.day,
-            s.label,
-            s.short_label,
-            row_cells(s, width, recess_after, entries[s.day], columns),
-            LoadCell(s.day, s.short_label, len(entries[s.day]), caps.get(s.day)),
+    by_day = defaultdict(list)
+    for entry in lessons:
+        by_day[entry.day].append(entry)
+    week = teacher_week(calendar, class_ids)
+
+    def load(s):
+        return LoadCell(s.day, s.short_label, len(by_day[s.day]), caps.get(s.day))
+
+    if week is not None:
+        width, recess_after, columns = grid_header(week)
+        rows = [
+            TeacherRow(
+                s.day,
+                s.label,
+                s.short_label,
+                row_cells(s, width, recess_after, {e.period: e for e in by_day[s.day]}, columns),
+                load(s),
+            )
+            for s in week
+        ]
+        note = ""
+    else:
+        columns, agenda_rows = agenda(
+            calendar,
+            {d: [(e.class_group_id, e.period, e) for e in entries] for d, entries in by_day.items()},
+            lambda s, period, entry: Cell(LESSON, s.day, s.label, period, entry),
         )
-        for s in week
-    ]
-    filled = sum(len(by_period) for by_period in entries.values())
-    return Grid(columns, rows, filled, sum(caps.get(s.day, 0) for s in week))
+        rows = [TeacherRow(s.day, s.label, s.short_label, cells, load(s)) for s, cells in agenda_rows]
+        note = MIXED_NOTE
+    total = sum(caps.get(d, 0) for d in calendar.days)
+    return Grid(columns, rows, len(lessons), total, note)
 
 
 # --------------------------------------------------------------------------

@@ -37,7 +37,7 @@ class AssignLessonTests(SchoolFixture):
         self.assertEqual(codes(exc), [v.TEACHER_CLASH])
         self.assertEqual(
             exc.exception.violations[0].message,
-            "Mr Physics is already teaching 10B on Monday, period 1.",
+            "Mr Physics is already teaching 10B on Monday, period 1 (08:00–08:40).",
         )
         self.assertEqual(exc.exception.violations[0].context["class"], "10B")
 
@@ -129,7 +129,7 @@ class InvalidSlotTests(SchoolFixture):
         self.assert_invalid(Day.MONDAY, 10, "periods 1–9")
 
     def test_period_beyond_short_saturday(self):
-        self.assert_invalid(Day.SATURDAY, 7, "Saturday has teaching periods 1–6 only")
+        self.assert_invalid(Day.SATURDAY, 7, "10A has teaching periods 1–6 only on Saturday")
         self.assign(day=Day.SATURDAY, period=6)  # the last real period is fine
 
 
@@ -241,14 +241,14 @@ class ClearLockResetTests(SchoolFixture):
 
 
 class IntegrityErrorTests(SchoolFixture):
-    def test_unique_constraint_failure_becomes_a_friendly_clash(self):
-        """If two writers race past validation, the database constraint still gives a clear message."""
-        self.assign(self.c10b, teacher=self.mr_physics)
+    def test_unique_constraint_failure_becomes_a_friendly_message(self):
+        """If two writers race past validation, the class-slot constraint still gives a clear message."""
+        self.assign(self.c10a, teacher=self.mr_physics)
         with mock.patch.object(v, "validate_assignment", return_value=[]):
             with self.assertRaises(services.SchedulingError) as exc:
-                self.assign(self.c10a, teacher=self.mr_physics)
-        self.assertEqual(codes(exc), [v.TEACHER_CLASH])
-        self.assertIn("already teaching 10B on Monday, period 1", str(exc.exception))
+                self.assign(self.c10a)
+        self.assertEqual(codes(exc), [v.SLOT_OCCUPIED])
+        self.assertIn("10A already has", str(exc.exception))
         self.assertEqual(TimetableEntry.objects.count(), 1)
 
 

@@ -82,11 +82,10 @@ class TimetableEntry(models.Model):
             models.UniqueConstraint(
                 fields=["class_group", "day", "period"], name="entry_class_slot_unique"
             ),
-            # A teacher is in at most one class per slot, across the WHOLE school.
-            # This also protects against two admins assigning at the same moment.
-            models.UniqueConstraint(
-                fields=["teacher", "day", "period"], name="entry_teacher_slot_unique"
-            ),
+            # A teacher's lessons must not overlap in time, across the WHOLE school.
+            # Timing groups have different bells, so this cannot be a constraint on
+            # (teacher, day, period): the service layer checks clock times while
+            # holding the teacher's row lock.
             models.CheckConstraint(condition=VALID_DAY_Q, name="entry_valid_day"),
             models.CheckConstraint(condition=Q(period__gte=1), name="entry_period_positive"),
         ]
@@ -110,7 +109,7 @@ class TimetableEntry(models.Model):
             return
         from school.day_schedule import get_day_schedule
 
-        schedule = get_day_schedule(self.day)
+        schedule = get_day_schedule(self.day, self.class_group_id) if self.class_group_id else get_day_schedule(self.day)
         if schedule is None:
             raise ValidationError({"day": f"The school does not operate on {Day(self.day).label}."})
         if not schedule.is_valid_period(self.period):

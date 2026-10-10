@@ -23,7 +23,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from school.allotment import REASONS, AllotmentError, grade_order, parse_allotment, plan_import, split_class
-from school.day_schedule import get_week_schedule
+from school.day_schedule import Calendar
 from school.health import run_health_checks
 from school.models import (
     ClassGroup,
@@ -80,7 +80,7 @@ class Command(BaseCommand):
     # ------------------------------------------------------------------
 
     def apply(self, plan):
-        week = get_week_schedule()
+        calendar = Calendar.load()
 
         subjects = {}
         for code, name in plan.subjects.items():
@@ -108,10 +108,11 @@ class Command(BaseCommand):
             if not teacher.is_active:
                 teacher.is_active = True
                 teacher.save(update_fields=["is_active"])
-            for day in week:
-                # Never overwrite a capacity someone has already refined.
+            for day in calendar.days:
+                # Never overwrite a capacity someone has already refined. A full day is
+                # the longest day any class has (timing groups may differ).
                 TeacherDailyAvailability.objects.get_or_create(
-                    teacher=teacher, day=day.day, defaults={"max_periods": day.periods}
+                    teacher=teacher, day=day, defaults={"max_periods": calendar.max_periods(day)}
                 )
             teachers[name] = teacher
 

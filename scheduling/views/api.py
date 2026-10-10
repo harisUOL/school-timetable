@@ -83,7 +83,7 @@ class SlotOptionsView(ApiMixin, View):
         except BadRequest as exc:
             return bad_request(str(exc))
         class_group = get_object_or_404(ClassGroup.objects.with_structure(), pk=class_id)
-        schedule = get_day_schedule(day)
+        schedule = get_day_schedule(day, class_group)
         if schedule is None or not schedule.is_valid_period(period):
             return error_response(
                 [v.Violation(v.INVALID_SLOT, "That is not a teaching slot.", {"day": day, "period": period})]

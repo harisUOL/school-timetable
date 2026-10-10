@@ -50,10 +50,11 @@ class TimetableEntryConstraintTests(TestCase):
         with self.assertRaises(IntegrityError), transaction.atomic():
             self.entry(teacher=self.teacher_b).save()
 
-    def test_teacher_cannot_be_in_two_classes_at_once(self):
+    def test_teacher_overlaps_are_not_a_database_constraint(self):
+        """Timing groups ring different bells, so clashes are checked by clock time in the services."""
         self.entry().save()
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            self.entry(class_group=self.class_10b).save()
+        self.entry(class_group=self.class_10b).save()
+        self.assertEqual(TimetableEntry.objects.filter(teacher=self.teacher_a).count(), 2)
 
     def test_same_teacher_different_period_is_fine(self):
         self.entry().save()

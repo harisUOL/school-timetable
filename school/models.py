@@ -7,7 +7,6 @@ Nothing in this module schedules lessons. Timetable entries live in the
 
 import datetime
 
-from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
@@ -32,57 +31,6 @@ VALID_DAY_Q = Q(day__gte=min(Day.values), day__lte=max(Day.values))
 # ==========================================================================
 # School calendar configuration
 # ==========================================================================
-
-
-def validate_day_layout(day, periods, recess_after, is_operating, check_capacities=True):
-    """
-    Validate an *effective* day layout and protect existing data.
-
-    Shared by SchoolSettings (whose defaults are inherited by days) and
-    SchoolDayConfiguration (which can override them), so both enforce the
-    same rules. Returns a list of error messages (empty if valid).
-    """
-    errors = []
-    label = Day(day).label
-
-    if is_operating:
-        if recess_after and recess_after >= periods:
-            errors.append(
-                f"{label}: recess after period {recess_after} is not possible "
-                f"with only {periods} teaching periods."
-            )
-
-    # Changing the layout must not orphan data that already exists.
-    TimetableEntry = apps.get_model("scheduling", "TimetableEntry")
-    max_allowed = periods if is_operating else 0
-
-    stranded = TimetableEntry.objects.filter(day=day, period__gt=max_allowed).count()
-    if stranded:
-        errors.append(
-            f"{label}: {stranded} timetable lesson(s) are scheduled beyond period "
-            f"{max_allowed}. Clear them before reducing this day's periods."
-        )
-
-    over_capacity = check_capacities and TeacherDailyAvailability.objects.filter(
-        day=day, max_periods__gt=max_allowed
-    ).count()
-    if over_capacity:
-        errors.append(
-            f"{label}: {over_capacity} teacher availability record(s) allow more than "
-            f"{max_allowed} periods. Lower them before reducing this day's periods."
-        )
-    return errors
-
-
-def validate_day_times(day, periods, recess_after, start, period_minutes, recess_minutes):
-    """The day's bell times must finish before midnight. Returns error messages."""
-    if start is None or not periods:
-        return []
-    recess = recess_minutes if 0 < recess_after < periods else 0
-    end = start.hour * 60 + start.minute + periods * period_minutes + recess
-    if end > 24 * 60:
-        return [f"{Day(day).label}: {periods} periods of {period_minutes} minutes from {start:%H:%M} run past midnight."]
-    return []
 
 
 def period_minutes_validators():
@@ -146,28 +94,11 @@ class SchoolSettings(models.Model):
 
     def clean(self):
         super().clean()
-        errors = []
-        # Re-validate every day that inherits these defaults.
-        for config in SchoolDayConfiguration.objects.all():
-            errors.extend(
-                validate_day_layout(
-                    config.day,
-                    config.effective_periods(self),
-                    config.effective_recess_after(self),
-                    config.is_operating,
-                )
-            )
-            if config.is_operating:
-                errors.extend(
-                    validate_day_times(
-                        config.day,
-                        config.effective_periods(self),
-                        config.effective_recess_after(self),
-                        config.effective_start_time(self),
-                        config.effective_period_minutes(self),
-                        config.effective_recess_minutes(self),
-                    )
-                )
+        # Re-validate every day (and every timing group) that inherits these defaults.
+        from .day_schedule import Calendar, calendar_errors
+
+        calendar = Calendar.load()
+        errors = calendar_errors(calendar.with_changes(settings=self), calendar)
         if errors:
             raise ValidationError(errors)
 
@@ -247,22 +178,81 @@ class SchoolDayConfiguration(models.Model):
         super().clean()
         if self.day is None:
             return
-        settings = SchoolSettings.load()
-        errors = validate_day_layout(
-            self.day,
-            self.effective_periods(settings),
-            self.effective_recess_after(settings),
-            self.is_operating,
-        )
-        if self.is_operating:
-            errors += validate_day_times(
-                self.day,
-                self.effective_periods(settings),
-                self.effective_recess_after(settings),
-                self.effective_start_time(settings),
-                self.effective_period_minutes(settings),
-                self.effective_recess_minutes(settings),
-            )
+        from .day_schedule import Calendar, calendar_errors
+
+        calendar = Calendar.load()
+        errors = calendar_errors(calendar.with_changes(configs={self.day: self}), calendar)
+        if errors:
+            raise ValidationError(errors)
+
+
+class TimingGroup(models.Model):
+    """
+    Grades that keep their own bell times, e.g. "Class I–V" opening at 07:30
+    while "Prep" opens at 09:00. A grade with no group uses the school week.
+
+    Each `TimingGroupDay` overrides the school's layout for one weekday; blank
+    fields inherit it. Whether the school is open on a day is school-wide.
+    """
+
+    name = models.CharField(max_length=100)
+    order = models.PositiveSmallIntegerField(default=0, help_text="Controls sort order.")
+
+    class Meta:
+        ordering = ["order", "name"]
+        constraints = [models.UniqueConstraint(Lower("name"), name="timing_group_name_unique_ci")]
+
+    def __str__(self):
+        return self.name
+
+
+class TimingGroupDay(models.Model):
+    group = models.ForeignKey(TimingGroup, on_delete=models.CASCADE, related_name="days")
+    day = models.PositiveSmallIntegerField(choices=Day.choices)
+    periods = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(MAX_PERIODS_PER_DAY)],
+        help_text="Leave blank to use the school's value for this day.",
+    )
+    recess_after_period = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MaxValueValidator(MAX_PERIODS_PER_DAY - 1)],
+        help_text="Leave blank to use the school's value. Use 0 for no recess.",
+    )
+    start_time = models.TimeField(null=True, blank=True, help_text="Leave blank to use the school's value.")
+    period_minutes = models.PositiveSmallIntegerField(
+        null=True, blank=True, validators=period_minutes_validators(), help_text="Leave blank to use the school's value."
+    )
+    recess_minutes = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MaxValueValidator(MAX_RECESS_MINUTES)],
+        help_text="Leave blank to use the school's value.",
+    )
+
+    class Meta:
+        ordering = ["group", "day"]
+        verbose_name = "timing group day"
+        constraints = [
+            models.UniqueConstraint(fields=["group", "day"], name="timing_group_day_unique"),
+            models.CheckConstraint(condition=VALID_DAY_Q, name="timing_group_day_valid_day"),
+        ]
+
+    def __str__(self):
+        return f"{self.group} – {self.get_day_display()}"
+
+    def clean(self):
+        super().clean()
+        if self.day is None or not self.group_id:
+            return
+        from .day_schedule import Calendar, calendar_errors
+
+        calendar = Calendar.load()
+        days = {**calendar.group_days.get(self.group_id, {}), self.day: self}
+        new = calendar.with_changes(group_days={self.group_id: days})
+        errors = calendar_errors(new, calendar)
         if errors:
             raise ValidationError(errors)
 
@@ -275,6 +265,14 @@ class SchoolDayConfiguration(models.Model):
 class Grade(models.Model):
     name = models.CharField(max_length=50, help_text='Short form, e.g. "10".')
     order = models.PositiveSmallIntegerField(default=0, help_text="Controls sort order.")
+    timing_group = models.ForeignKey(
+        TimingGroup,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="grades",
+        help_text="Grades in a timing group keep its bell times. Blank uses the school week.",
+    )
 
     class Meta:
         ordering = ["order", "name"]
@@ -437,22 +435,19 @@ class TeacherDailyAvailability(models.Model):
         super().clean()
         if self.day is None or self.max_periods is None:
             return
-        from .day_schedule import get_day_schedule
+        from .day_schedule import Calendar
 
-        schedule = get_day_schedule(self.day)
-        if schedule is None:
+        calendar = Calendar.load()
+        if self.day not in calendar.days:
             if self.max_periods > 0:
                 raise ValidationError(
                     {"day": f"The school does not operate on {Day(self.day).label}."}
                 )
             return
-        if self.max_periods > schedule.periods:
+        longest = calendar.max_periods(self.day)
+        if self.max_periods > longest:
             raise ValidationError(
-                {
-                    "max_periods": (
-                        f"{schedule.label} has only {schedule.periods} teaching periods."
-                    )
-                }
+                {"max_periods": f"{Day(self.day).label} has only {longest} teaching periods."}
             )
 
 
@@ -506,10 +501,10 @@ class SubjectRequirement(models.Model):
         if self.periods_per_week:
             from .day_schedule import weekly_teaching_slots
 
-            slots = weekly_teaching_slots()
+            slots = weekly_teaching_slots(self.class_group_id) if self.class_group_id else weekly_teaching_slots()
             if self.periods_per_week > slots:
                 errors["periods_per_week"] = (
-                    f"A class has only {slots} teaching periods per week."
+                    f"{self.class_group if self.class_group_id else 'A class'} has only {slots} teaching periods per week."
                 )
 
         if self.teacher_id and self.subject_id:

@@ -9,8 +9,8 @@ Administrators configure teachers, subjects, daily teaching capacities and
 weekly subject requirements. They then build class timetables manually and,
 later, generate a complete school-wide timetable automatically.
 
-All class timetables share one pool of teachers. A teacher can never be in
-two classes in the same slot, and their daily capacity counts lessons across
+All class timetables share one pool of teachers. A teacher can never teach
+two lessons whose times overlap, and their daily capacity counts lessons across
 every class.
 
 ## Stack
@@ -61,8 +61,11 @@ python manage.py seed_demo                     # from Phase 2
    - When no teacher is designated, the generator picks ONE teacher for that class and subject for the whole week.
 4. **No combined or split lessons (MVP).** There is one class, one teacher and one subject per slot.
    - Keep the service API shaped so that a `Lesson` that owns several classes or teachers can be added later.
-5. **Day layouts come from `day_schedule`.** Never hardcode 6 days, 9 periods or recess after 4.
+5. **Day layouts come from `day_schedule`.** Never hardcode 6 days, 9 periods, recess after 4 or any time.
    - Recess is display-only. It is never a period and never counts towards workload.
+   - Timing groups give grades their own layout and bell times, so a class's day comes from
+     `Calendar.class_day()`, and period 3 is not the same time in every class.
+   - Teacher clashes are decided by clock time (overlapping intervals), never by period number.
 6. **Subject allocation is capped.** A class may not receive more lessons of a subject than its `periods_per_week`.
    - The subject must have a requirement row for that class.
 7. **Qualification is required.** The teacher must have a `TeacherSubject` row for the subject and must be active.

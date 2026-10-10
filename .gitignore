@@ -19,3 +19,8 @@ media/
 .vscode/
 .idea/
 .DS_Store
+
+# Local backups and exported school data (contain staff names)
+*.sqlite3.bak*
+deploy-data/
+docs/allotment-skipped.csv

@@ -57,6 +57,14 @@ if not SECRET_KEY:
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", "localhost,127.0.0.1")
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
 
+# Railway (and similar hosts) publish the app's public domain: trust it automatically.
+PUBLIC_DOMAIN = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
+if PUBLIC_DOMAIN:
+    ALLOWED_HOSTS.append(PUBLIC_DOMAIN)
+    CSRF_TRUSTED_ORIGINS.append(f"https://{PUBLIC_DOMAIN}")
+if os.environ.get("RAILWAY_ENVIRONMENT"):
+    ALLOWED_HOSTS.append("healthcheck.railway.app")  # Railway's health checker
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -73,6 +81,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Serves collected static files in production (no separate web server needed).
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -106,10 +116,31 @@ WSGI_APPLICATION = "config.wsgi.application"
 # --------------------------------------------------------------------------
 # SQLite by default. Set SQLITE_PATH per Git branch to keep branch data
 # separate (e.g. SQLITE_PATH=db_feature_x.sqlite3).
-# Set POSTGRES_DB (plus the other POSTGRES_* vars) to switch to PostgreSQL;
-# that also requires `pip install "psycopg[binary]"`.
+# Set DATABASE_URL (postgres://user:password@host:port/name, as Railway
+# provides it) or POSTGRES_DB plus the other POSTGRES_* vars to use PostgreSQL.
 
-if os.environ.get("POSTGRES_DB"):
+
+def _database_from_url(url: str) -> dict:
+    from urllib.parse import unquote, urlparse
+
+    parts = urlparse(url)
+    if parts.scheme not in {"postgres", "postgresql"}:
+        raise ValueError(f"DATABASE_URL must be a postgres:// URL, not {parts.scheme}://")
+    return {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": unquote(parts.path.lstrip("/")),
+        "USER": unquote(parts.username or ""),
+        "PASSWORD": unquote(parts.password or ""),
+        "HOST": parts.hostname or "localhost",
+        "PORT": str(parts.port or 5432),
+        "CONN_MAX_AGE": 60,
+        "CONN_HEALTH_CHECKS": True,
+    }
+
+
+if os.environ.get("DATABASE_URL"):
+    DATABASES = {"default": _database_from_url(os.environ["DATABASE_URL"])}
+elif os.environ.get("POSTGRES_DB"):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
@@ -167,6 +198,11 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    # Compressed copies of CSS/JS, served by WhiteNoise.
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
+}
 
 # --------------------------------------------------------------------------
 # Security hardening outside development
@@ -176,6 +212,12 @@ if not DEBUG:
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
+
+# Behind an HTTPS proxy (Railway): trust its header so Django knows requests are secure.
+if env_bool("BEHIND_HTTPS_PROXY", default=bool(PUBLIC_DOMAIN)):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = not DEBUG
+    SECURE_REDIRECT_EXEMPT = [r"^healthz/$"]  # the health check arrives over plain HTTP
 
 # --------------------------------------------------------------------------
 # Timetable rules and generator weights

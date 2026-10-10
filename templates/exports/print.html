@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% if pages|length == 1 %}{{ pages.0.title }}{% else %}All classes{% endif %} · Print</title>
   <script src="{% static 'js/theme.js' %}"></script>
+  <link rel="icon" href="{% static 'img/favicon.ico' %}" sizes="32x32">
+  <link rel="apple-touch-icon" href="{% static 'img/apple-touch-icon.png' %}">
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
   <link rel="stylesheet" href="{% static 'css/print.css' %}">
 </head>

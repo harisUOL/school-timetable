@@ -472,3 +472,15 @@ Applying 486 lessons through the service takes about 5 s on SQLite.
 - CLAUDE.md rule 6 now describes the extra-lesson exception, agreed with the school.
 - Migrations scheduling 0005 and generator 0003 add `is_extra`, default False. No data
   changes.
+
+## Branding and hosting
+
+- The school's Blossoms badge replaces the "TT" mark in the sidebar and on the sign-in page.
+  The school's icon is the browser-tab favicon and the home-screen icon.
+- Ready for Railway (see `docs/DEPLOY.md`):
+  - `railway.json` and `.python-version`;
+  - `DATABASE_URL` support;
+  - the Railway domain trusted automatically;
+  - HTTPS behind the proxy;
+  - WhiteNoise for static files and gunicorn as the server;
+  - a public `/healthz/` endpoint (no data) for Railway's health check.

@@ -5,12 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign in · School Timetable</title>
   <script src="{% static 'js/theme.js' %}"></script>
+  <link rel="icon" href="{% static 'img/favicon.ico' %}" sizes="32x32">
+  <link rel="apple-touch-icon" href="{% static 'img/apple-touch-icon.png' %}">
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
 </head>
 <body class="auth-page">
   <main class="auth-card">
     <div class="brand">
-      <span class="brand-mark" aria-hidden="true">TT</span>
+      <img class="brand-logo" src="{% static 'img/logo-96.png' %}" srcset="{% static 'img/logo-96.png' %} 1x, {% static 'img/logo-192.png' %} 2x" width="48" height="48" alt="">
       <span class="brand-name">School Timetable</span>
     </div>
     <h1>Sign in</h1>

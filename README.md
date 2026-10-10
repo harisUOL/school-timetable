@@ -211,6 +211,11 @@ produces a complete, valid timetable (486 lessons for 10 classes).
 
 The domain and architecture rules are in `CLAUDE.md`.
 
+## Hosting
+
+See `docs/DEPLOY.md`. It covers Railway: the web service plus PostgreSQL, the environment
+variables, and copying the school's data across.
+
 ## Working with Git branches
 
 SQLite data is not versioned by Git. Point each branch at its own database file in `.env`:

@@ -146,3 +146,38 @@ python manage.py runserver   # sign in at /accounts/login/
 
 **Try it**: assign some lessons. Then lower a teacher's capacity in *Availability* and
 open *Subject Requirements → Conflict report*.
+
+## Phase 5: UI refinement
+
+**Built**
+- Colours:
+  - Every colour is a CSS custom property.
+  - The light and dark themes follow the system setting, and the sidebar
+    "Dark/Light theme" button overrides it (remembered per browser).
+  - `static/js/theme.js` applies the saved theme before first paint.
+- Responsive layout:
+  - At tablet width and below, the sidebar becomes a sticky top bar with a *Menu* button
+    (`aria-expanded`).
+  - On phones the timetable keeps its size and scrolls inside its own box. Checked in
+    headless Chrome at 390 px and 820 px: no page-level horizontal scroll on any main page.
+- Toasts (`static/js/app.js`):
+  - Django messages and in-page actions appear as toasts in `aria-live` regions.
+  - Success and info toasts are polite; errors are assertive and persist until dismissed.
+- Busy states:
+  - POST forms disable their submit buttons and show a spinner while submitting, which
+    blocks double submits.
+  - The timetable modal disables its actions and marks the grid `aria-busy` while a
+    request is in flight.
+- Accessibility:
+  - visible `:focus-visible` rings everywhere;
+  - a skip link;
+  - labelled controls and progress bars;
+  - colour states always paired with text;
+  - `prefers-reduced-motion` respected.
+  - Every token text/background pair meets WCAG AA (4.5:1) in both themes. A link
+    colour token was added for dark mode, where the brand blue measured 3.5:1.
+
+**Decisions**
+- Fixed an overflow bug: visually-hidden captions inside scrolling tables widened the
+  page on phones. Scroll containers are now the captions' positioning context.
+- No server-side rules changed.

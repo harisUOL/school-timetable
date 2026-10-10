@@ -159,3 +159,21 @@ class AvailabilityGridTests(TestCase):
         client.force_login(make_user("editor2", EDITOR_GROUP))
         response = client.post(self.url, self.grid_data())
         self.assertEqual(response.status_code, 403)
+
+
+class LayoutTests(TestCase):
+    def test_base_layout_accessibility_hooks(self):
+        self.client.force_login(make_user("viewer", VIEWER_GROUP))
+        response = self.client.get(reverse("scheduling:dashboard"))
+        self.assertContains(response, 'aria-live="polite"')
+        self.assertContains(response, 'aria-live="assertive"')
+        self.assertContains(response, 'id="theme-toggle"')
+        self.assertContains(response, 'aria-controls="sidebar-nav"')
+        self.assertContains(response, 'href="#main"')
+        self.assertContains(response, "js/app.js")
+
+    def test_messages_render_as_toasts(self):
+        self.client.force_login(make_user("editor", EDITOR_GROUP))
+        make_teacher("Ms A", capacity={Day.MONDAY: 4})
+        response = self.client.post(reverse("school:availability"), {}, follow=True)
+        self.assertContains(response, 'class="toast toast-success"')

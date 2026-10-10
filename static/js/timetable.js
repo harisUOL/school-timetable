@@ -23,7 +23,6 @@ if (grid && dialog && csrfInput) {
     errors: dialog.querySelector("[data-region=errors]"),
     footer: dialog.querySelector("[data-region=footer]"),
   };
-  const liveStatus = document.getElementById("live-status");
 
   const state = {
     slot: null, // {day, period}
@@ -32,6 +31,7 @@ if (grid && dialog && csrfInput) {
     subjectId: null,
     teacherId: null,
     busy: false,
+    busyButton: null, // the button whose request is in flight (shows a spinner)
     opener: null,
   };
 
@@ -385,11 +385,13 @@ if (grid && dialog && csrfInput) {
   function setBusy(busy) {
     state.busy = busy;
     dialog.setAttribute("aria-busy", busy ? "true" : "false");
+    grid.setAttribute("aria-busy", busy ? "true" : "false");
     for (const button of regions.footer.querySelectorAll("button")) {
       if (button.dataset.action === "cancel") continue;
       button.disabled = busy;
-      button.classList.toggle("is-loading", busy && button === document.activeElement);
+      button.classList.toggle("is-loading", busy && button === state.busyButton);
     }
+    if (!busy) state.busyButton = null;
     if (!busy) updateConfirm();
   }
 
@@ -413,7 +415,8 @@ if (grid && dialog && csrfInput) {
 
   // ---- Actions -----------------------------------------------------------
 
-  async function submit(url, payload) {
+  async function submit(url, payload, event) {
+    state.busyButton = event ? event.currentTarget : null;
     setBusy(true);
     const data = await post(url, payload);
     setBusy(false);
@@ -425,21 +428,21 @@ if (grid && dialog && csrfInput) {
     close();
   }
 
-  function assignLesson() {
+  function assignLesson(event) {
     if (!state.subjectId || !state.teacherId) return;
-    return submit(urls.assign, {
-      subject_id: state.subjectId,
-      teacher_id: state.teacherId,
-      expected: expectedVersion(),
-    });
+    return submit(
+      urls.assign,
+      { subject_id: state.subjectId, teacher_id: state.teacherId, expected: expectedVersion() },
+      event
+    );
   }
 
-  function removeLesson() {
-    return submit(urls.clear, { expected: expectedVersion() });
+  function removeLesson(event) {
+    return submit(urls.clear, { expected: expectedVersion() }, event);
   }
 
-  function toggleLock() {
-    return submit(urls.lock, { locked: !state.options.entry.is_locked, expected: expectedVersion() });
+  function toggleLock(event) {
+    return submit(urls.lock, { locked: !state.options.entry.is_locked, expected: expectedVersion() }, event);
   }
 
   function applyResult(data) {
@@ -452,12 +455,12 @@ if (grid && dialog && csrfInput) {
       const node = document.querySelector(`[data-stat="${key}"]`);
       if (node) node.textContent = value;
     }
-    const notes = [data.message, ...data.warnings.map((w) => w.message)].join(" ");
-    announce(notes, data.warnings.length ? "warning" : "success");
+    toast(data.message, "success");
+    for (const warning of data.warnings) toast(warning.message, "warning");
   }
 
-  function announce(message, kind) {
+  // Toasts are shown (and announced through aria-live) by app.js.
+  function toast(message, kind) {
     document.dispatchEvent(new CustomEvent("app:toast", { detail: { message, kind } }));
-    if (liveStatus) liveStatus.textContent = message;
   }
 }

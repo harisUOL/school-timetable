@@ -1,0 +1,16 @@
+{% comment %}
+Toasts: Django messages render here (visible without JavaScript); app.js adds
+new ones for in-page actions. Errors use an assertive live region.
+{% endcomment %}
+<div class="toasts" id="toasts">
+  <div class="toast-region" data-toast-region="polite" role="status" aria-live="polite">
+    {% for message in messages %}{% if message.level < 40 %}
+    <div class="toast toast-{{ message.tags|default:'info' }}"><span class="toast-message">{{ message }}</span><button type="button" class="toast-close" aria-label="Dismiss">×</button></div>
+    {% endif %}{% endfor %}
+  </div>
+  <div class="toast-region" data-toast-region="assertive" role="alert" aria-live="assertive">
+    {% for message in messages %}{% if message.level >= 40 %}
+    <div class="toast toast-error"><span class="toast-message">{{ message }}</span><button type="button" class="toast-close" aria-label="Dismiss">×</button></div>
+    {% endif %}{% endfor %}
+  </div>
+</div>

@@ -63,6 +63,7 @@ def snapshot(entry):
         "teacher_id": entry.teacher_id,
         "teacher": entry.teacher.name,
         "is_locked": entry.is_locked,
+        "is_extra": entry.is_extra,
     }
 
 
@@ -145,9 +146,13 @@ def _clash_from_integrity_error(class_group, day, period, teacher, exclude):
 
 
 @transaction.atomic
-def assign_lesson(*, class_group, day, period, subject, teacher, user, expected=None):
+def assign_lesson(*, class_group, day, period, subject, teacher, user, expected=None, extra=False):
     """
     Put `subject` with `teacher` into the class's slot.
+
+    `extra=True` makes it an extra lesson: allowed beyond the subject's weekly
+    number or for a subject the class has no requirement for, and not counted
+    towards requirements. Clashes, capacity and qualification still apply.
 
     With `expected=None` the slot must be empty. To replace the lesson in an
     occupied slot, pass the `expected` version of that lesson.
@@ -161,7 +166,7 @@ def assign_lesson(*, class_group, day, period, subject, teacher, user, expected=
     exclude = replacing.pk if replacing else None
 
     violations = v.validate_assignment(
-        class_group, day, period, subject, teacher, exclude_entry_id=exclude
+        class_group, day, period, subject, teacher, exclude_entry_id=exclude, extra=extra
     )
     if violations:
         raise SchedulingError(violations)
@@ -173,6 +178,7 @@ def assign_lesson(*, class_group, day, period, subject, teacher, user, expected=
                 entry = replacing
                 entry.subject = subject
                 entry.teacher = teacher
+                entry.is_extra = extra
                 entry.updated_by = user if getattr(user, "is_authenticated", False) else None
                 entry.save()
             else:
@@ -183,6 +189,7 @@ def assign_lesson(*, class_group, day, period, subject, teacher, user, expected=
                     period=period,
                     subject=subject,
                     teacher=teacher,
+                    is_extra=extra,
                     created_by=actor,
                     updated_by=actor,
                 )
@@ -193,7 +200,9 @@ def assign_lesson(*, class_group, day, period, subject, teacher, user, expected=
 
     action = TimetableAuditLog.Action.REPLACE if replacing else TimetableAuditLog.Action.ASSIGN
     _audit(user, action, class_group, day=day, period=period, before=before, after=snapshot(entry))
-    return ServiceResult(entry, action, v.assignment_warnings(class_group, subject, teacher))
+    # An extra lesson is cover by choice: the designated teacher does not apply to it.
+    warnings = [] if extra else v.assignment_warnings(class_group, subject, teacher)
+    return ServiceResult(entry, action, warnings)
 
 
 @transaction.atomic

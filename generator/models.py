@@ -83,6 +83,7 @@ class ProposedLesson(models.Model):
     subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name="+")
     teacher = models.ForeignKey(Teacher, on_delete=models.CASCADE, related_name="+")
     is_kept = models.BooleanField(default=False, help_text="An existing lesson the run kept.")
+    is_extra = models.BooleanField(default=False, help_text="A kept extra lesson (does not count towards requirements).")
     source_entry_id = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:

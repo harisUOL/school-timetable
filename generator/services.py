@@ -155,6 +155,7 @@ def _invalid_kept_lessons(problem):
             teachers[lesson.teacher_id],
             exclude_entry_id=lesson.key,
             state=state,
+            extra=lesson.is_extra,
         ):
             problems.append(f"{lesson.class_label} {v.slot_text(lesson.day, lesson.period)}: {violation.message}")
     return problems
@@ -170,6 +171,7 @@ def _store_proposal(run, problem, solution):
             subject_id=k.subject_id,
             teacher_id=k.teacher_id,
             is_kept=True,
+            is_extra=k.is_extra,
             source_entry_id=k.key,
         )
         for k in problem.kept
@@ -211,12 +213,20 @@ def validate_proposal(run):
             class_label=str(pl.class_group),
             subject_name=pl.subject.name,
             teacher_name=pl.teacher.name,
+            is_extra=pl.is_extra,
         )
         for pl in proposal
     )
     for pl in proposal:
         for violation in v.validate_assignment(
-            pl.class_group, pl.day, pl.period, pl.subject, pl.teacher, exclude_entry_id=("proposal", pl.pk), state=state
+            pl.class_group,
+            pl.day,
+            pl.period,
+            pl.subject,
+            pl.teacher,
+            exclude_entry_id=("proposal", pl.pk),
+            state=state,
+            extra=pl.is_extra,
         ):
             problems.append(f"{pl.class_group} {v.slot_text(pl.day, pl.period)}: {violation.message}")
 

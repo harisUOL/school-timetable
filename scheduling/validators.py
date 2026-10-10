@@ -74,6 +74,7 @@ class Lesson:
     class_label: str = ""
     subject_name: str = ""
     teacher_name: str = ""
+    is_extra: bool = False  # extra lessons never count towards a requirement
 
 
 def slot_text(day, period):
@@ -146,6 +147,7 @@ class DatabaseState:
             class_label=str(entry.class_group),
             subject_name=entry.subject.name,
             teacher_name=entry.teacher.name,
+            is_extra=entry.is_extra,
         )
 
     def class_slot_lesson(self, class_id, day, period, exclude=None):
@@ -174,7 +176,10 @@ class DatabaseState:
         return self._entries(exclude).filter(teacher_id=teacher_id, day=day).count()
 
     def class_subject_count(self, class_id, subject_id, exclude=None):
-        return self._entries(exclude).filter(class_group_id=class_id, subject_id=subject_id).count()
+        """Lessons counting towards the requirement (extra lessons do not)."""
+        return (
+            self._entries(exclude).filter(class_group_id=class_id, subject_id=subject_id, is_extra=False).count()
+        )
 
     def capacity(self, teacher_id, day):
         record = TeacherDailyAvailability.objects.filter(teacher_id=teacher_id, day=day).first()
@@ -221,7 +226,8 @@ class MemoryState:
         self.lessons[lesson.key] = lesson
         self._class_slot[(lesson.class_id, lesson.day, lesson.period)] = lesson
         self._teacher_day[(lesson.teacher_id, lesson.day)].add(lesson.key)
-        self._class_subject[(lesson.class_id, lesson.subject_id)].add(lesson.key)
+        if not lesson.is_extra:
+            self._class_subject[(lesson.class_id, lesson.subject_id)].add(lesson.key)
 
     def remove(self, key):
         lesson = self.lessons.pop(key)
@@ -299,11 +305,15 @@ def _load_qualifications():
 
 
 def validate_assignment(
-    class_group, day, period, subject, teacher, *, exclude_entry_id=None, state=None
+    class_group, day, period, subject, teacher, *, exclude_entry_id=None, state=None, extra=False
 ):
     """
     Every blocking reason why `teacher` may not teach `subject` to
     `class_group` in (`day`, `period`). Empty list means the lesson is allowed.
+
+    `extra=True` is a lesson chosen on purpose beyond the requirements (an
+    extra period of a subject, or cover with any subject the teacher is
+    qualified for): the requirement checks are skipped; every other rule holds.
 
     `teacher.is_active` is read from the object passed in, so callers that
     hold a row lock should pass the locked instance.
@@ -357,14 +367,15 @@ def validate_assignment(
             Violation(NOT_QUALIFIED, f"{teacher} is not qualified to teach {subject}.")
         )
 
-    requirement = state.requirement(class_group.pk, subject.pk)
-    if requirement is None:
+    # An extra lesson is outside the requirements by choice, so they are not checked.
+    requirement = None if extra else state.requirement(class_group.pk, subject.pk)
+    if not extra and requirement is None:
         violations.append(
             Violation(
                 SUBJECT_NOT_REQUIRED, f"{subject} is not one of {class_group}'s subjects."
             )
         )
-    else:
+    elif not extra:
         required = requirement[0]
         placed = state.class_subject_count(class_group.pk, subject.pk, exclude)
         if placed >= required:

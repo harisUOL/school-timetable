@@ -50,7 +50,8 @@ def score(lessons, *, calendar=None, requirements=None, capacities=None, qualifi
     teacher_week = defaultdict(int)
     for lesson in lessons:
         class_id = getattr(lesson, "class_id", None) or lesson.class_group_id
-        per_class_subject[(class_id, lesson.subject_id)] += 1
+        if not getattr(lesson, "is_extra", False):
+            per_class_subject[(class_id, lesson.subject_id)] += 1
         per_class_subject_day[(class_id, lesson.subject_id, lesson.day)] += 1
         teacher_lessons[(lesson.teacher_id, lesson.day)].append((class_id, lesson.period))
         teacher_week[lesson.teacher_id] += 1

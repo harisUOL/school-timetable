@@ -72,7 +72,8 @@ class Cell:
             return f"{where}: {self.activity} (activity)"
         if self.entry:
             locked = ", locked" if self.entry.is_locked else ""
-            return f"{where}: {self.entry.subject.name} with {self.entry.teacher.name}{locked}"
+            extra = ", extra lesson" if self.entry.is_extra else ""
+            return f"{where}: {self.entry.subject.name} with {self.entry.teacher.name}{locked}{extra}"
         return f"{where}: empty"
 
 
@@ -252,6 +253,7 @@ class Progress:
     required: int
     assigned: int
     weekly_slots: int
+    extras: list = field(default_factory=list)  # [(subject name, count)] of extra lessons
 
     @property
     def remaining(self):
@@ -268,10 +270,14 @@ class Progress:
 
 def requirement_progress(class_group):
     placed = defaultdict(list)
-    for subject_id, teacher_name in TimetableEntry.objects.filter(
+    extras = defaultdict(int)
+    for subject_id, teacher_name, subject_name, is_extra in TimetableEntry.objects.filter(
         class_group=class_group
-    ).values_list("subject_id", "teacher__name"):
-        placed[subject_id].append(teacher_name)
+    ).values_list("subject_id", "teacher__name", "subject__name", "is_extra"):
+        if is_extra:
+            extras[subject_name] += 1  # chosen on purpose; never counts towards the requirement
+        else:
+            placed[subject_id].append(teacher_name)
     subjects = [
         SubjectProgress(
             subject_id=req.subject_id,
@@ -291,13 +297,14 @@ def requirement_progress(class_group):
         required=sum(s.required for s in subjects),
         assigned=sum(min(s.assigned, s.required) for s in subjects),
         weekly_slots=sum(s.periods for s in get_class_week(class_group)),
+        extras=sorted(extras.items()),
     )
 
 
 def school_completion():
     """Lessons placed towards requirements, school-wide (extra lessons are not counted)."""
     placed = defaultdict(int)
-    for row in TimetableEntry.objects.values("class_group_id", "subject_id").annotate(n=Count("id")):
+    for row in TimetableEntry.objects.filter(is_extra=False).values("class_group_id", "subject_id").annotate(n=Count("id")):
         placed[(row["class_group_id"], row["subject_id"])] = row["n"]
     required = assigned = 0
     for class_id, subject_id, periods in SubjectRequirement.objects.values_list(
@@ -393,25 +400,13 @@ def slot_options(class_group, day, period):
         if d in state.week:
             weekly_max[tid] += cap
 
-    subjects = []
-    for req in (
-        SubjectRequirement.objects.filter(class_group=class_group)
-        .select_related("subject", "teacher")
-        .order_by("subject__name")
-    ):
-        subject = req.subject
-        assigned = state.class_subject_count(class_group.pk, subject.pk, exclude)
-        met = assigned >= req.periods_per_week
-        candidates = sorted(
-            (t for tid, t in teachers.items() if state.is_qualified(tid, subject.pk)),
-            key=lambda t: (t.pk != req.teacher_id, t.name),
-        )
+    def teacher_options(subject, designated_id):
         options = []
-        for teacher in candidates:
+        for teacher in (t for tid, t in teachers.items() if state.is_qualified(tid, subject.pk)):
             violations = [
                 violation
                 for violation in v.validate_assignment(
-                    class_group, day, period, subject, teacher, exclude_entry_id=exclude, state=state
+                    class_group, day, period, subject, teacher, exclude_entry_id=exclude, state=state, extra=True
                 )
                 if violation.code in v.TEACHER_AVAILABILITY_CODES
             ]
@@ -423,7 +418,7 @@ def slot_options(class_group, day, period):
                 {
                     "id": teacher.pk,
                     "name": teacher.name,
-                    "designated": teacher.pk == req.teacher_id,
+                    "designated": teacher.pk == designated_id,
                     "is_cover": teacher.is_cover_teacher,
                     "status": "blocked" if violations else "available",
                     "reasons": [x.as_dict() for x in violations],
@@ -431,22 +426,63 @@ def slot_options(class_group, day, period):
                     "week_load": {"assigned": week_count, "max": weekly_max[teacher.pk]},
                 }
             )
+        # Designated first, then whoever is free, least loaded that day first.
+        options.sort(key=lambda o: (not o["designated"], o["status"] != "available", o["day_load"]["assigned"], o["name"]))
+        return options
+
+    subjects = []
+    required_ids = set()
+    for req in (
+        SubjectRequirement.objects.filter(class_group=class_group)
+        .select_related("subject", "teacher")
+        .order_by("subject__name")
+    ):
+        subject = req.subject
+        required_ids.add(subject.pk)
+        assigned = state.class_subject_count(class_group.pk, subject.pk, exclude)
+        met = assigned >= req.periods_per_week
         subjects.append(
             {
                 "id": subject.pk,
                 "name": subject.name,
                 "code": subject.code or "",
+                "kind": "required",
                 "required": req.periods_per_week,
                 "assigned": assigned,
                 "remaining": max(req.periods_per_week - assigned, 0),
                 "met": met,
-                "disabled_reason": (
-                    f"All {req.periods_per_week} {subject.name} lessons are already placed."
+                # A met subject can still be chosen: it becomes an extra lesson.
+                "note": (
+                    f"All {req.periods_per_week} placed: another one is an extra lesson."
                     if met
                     else ""
                 ),
                 "designated_teacher_id": req.teacher_id,
                 "designated_teacher": req.teacher.name if req.teacher else "",
+                "teachers": teacher_options(subject, req.teacher_id),
+            }
+        )
+
+    # Any other subject an active teacher is qualified for, e.g. to cover an absence.
+    from school.models import Subject
+
+    for subject in Subject.objects.exclude(pk__in=required_ids).order_by("name"):
+        options = teacher_options(subject, None)
+        if not options:
+            continue
+        subjects.append(
+            {
+                "id": subject.pk,
+                "name": subject.name,
+                "code": subject.code or "",
+                "kind": "other",
+                "required": 0,
+                "assigned": 0,
+                "remaining": 0,
+                "met": True,
+                "note": f"Not one of {class_group}'s subjects: this is an extra lesson.",
+                "designated_teacher_id": None,
+                "designated_teacher": "",
                 "teachers": options,
             }
         )
@@ -462,6 +498,7 @@ def slot_options(class_group, day, period):
                 "teacher_id": entry.teacher_id,
                 "teacher": entry.teacher.name,
                 "is_locked": entry.is_locked,
+                "is_extra": entry.is_extra,
             }
             if entry
             else None
@@ -755,7 +792,10 @@ def subject_summaries():
     for sid, periods in SubjectRequirement.objects.values_list("subject_id", "periods_per_week"):
         demand[sid] += periods
     placed = dict(
-        TimetableEntry.objects.values_list("subject_id").annotate(n=Count("id")).values_list("subject_id", "n")
+        TimetableEntry.objects.filter(is_extra=False)
+        .values_list("subject_id")
+        .annotate(n=Count("id"))
+        .values_list("subject_id", "n")
     )
     result = []
     for subject in Subject.objects.prefetch_related("teachers"):
@@ -820,7 +860,7 @@ def requirements_overview(*, grade_id=None, class_id=None):
     if class_id:
         requirements = requirements.filter(class_group_id=class_id)
     placed = defaultdict(list)
-    for class_id_, subject_id, name in TimetableEntry.objects.values_list(
+    for class_id_, subject_id, name in TimetableEntry.objects.filter(is_extra=False).values_list(
         "class_group_id", "subject_id", "teacher__name"
     ):
         placed[(class_id_, subject_id)].append(name)
@@ -916,6 +956,7 @@ def find_conflicts():
             teachers[lesson.teacher_id],
             exclude_entry_id=lesson.key,
             state=state,
+            extra=lesson.is_extra,
         )
         for violation in violations:
             if violation.code in (v.CAPACITY_EXCEEDED, v.NO_CAPACITY_CONFIGURED):

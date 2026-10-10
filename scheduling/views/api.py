@@ -142,13 +142,16 @@ class WriteView(ApiMixin, View):
             return f"Removed the lesson from {where}."
         entry = result.entry
         verbs = {"assign": "Assigned", "replace": "Changed", "lock": "Locked", "unlock": "Unlocked"}
-        return f"{verbs.get(result.action, 'Saved')} {entry.subject} with {entry.teacher} on {where}."
+        extra = " as an extra lesson" if entry.is_extra and result.action in ("assign", "replace") else ""
+        return f"{verbs.get(result.action, 'Saved')} {entry.subject} with {entry.teacher} on {where}{extra}."
 
 
 class AssignView(WriteView):
-    """POST /api/lessons/assign/ {class_id, day, period, subject_id, teacher_id, expected?}"""
+    """POST /api/lessons/assign/ {class_id, day, period, subject_id, teacher_id, extra?, expected?}"""
 
     def perform(self, request, data, class_group, day, period):
+        if not isinstance(data.get("extra", False), bool):
+            raise BadRequest("'extra' must be true or false.")
         subject = Subject.objects.filter(pk=_int(data, "subject_id")).first()
         teacher = Teacher.objects.filter(pk=_int(data, "teacher_id")).first()
         if subject is None or teacher is None:
@@ -161,6 +164,7 @@ class AssignView(WriteView):
             teacher=teacher,
             user=request.user,
             expected=_expected(data),
+            extra=data.get("extra", False),
         )
 
 

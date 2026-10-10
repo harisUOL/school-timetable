@@ -68,6 +68,9 @@ python manage.py seed_demo                     # from Phase 2
    - Teacher clashes are decided by clock time (overlapping intervals), never by period number.
 6. **Subject allocation is capped.** A class may not receive more lessons of a subject than its `periods_per_week`.
    - The subject must have a requirement row for that class.
+   - Exception, agreed with the school: a lesson the user explicitly marks **extra** in the builder (cover for
+     an absence, an additional period) skips both checks. It never counts towards a requirement. Clashes,
+     capacity, qualification and activity rules still apply. The generator never creates extras.
 7. **Qualification is required.** The teacher must have a `TeacherSubject` row for the subject and must be active.
 
 ## Architecture rules

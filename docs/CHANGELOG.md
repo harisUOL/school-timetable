@@ -447,3 +447,28 @@ Applying 486 lessons through the service takes about 5 s on SQLite.
   - The shift made 4 teachers' Friday lessons overlap. Friday was cleared and regenerated
     for the 8 classes involved (I A, I C, IV B, V D, VII A, VII B, VII C, VIII D; 47
     lessons). The other 1722 lessons were kept.
+
+## Extra lessons and finding a free teacher
+
+**Built**
+- **Extra lessons** (`TimetableEntry.is_extra`): a lesson chosen on purpose beyond the
+  requirements. Use one for an additional period of a subject whose weekly lessons are all
+  placed, or to cover an absence with any subject the teacher is qualified for.
+  - Extras skip only the requirement checks. Teacher clashes, daily capacity, qualification,
+    active teachers and activities still apply.
+  - They never count towards a requirement: progress, completion, the requirements overview,
+    the conflict report and the generator all ignore them. The generator keeps them as
+    lessons that take a slot and capacity.
+  - The class's progress panel lists them, and the cell is marked "extra".
+- **Slot dialog changes:**
+  - every subject can be chosen; a met subject is offered as an extra lesson;
+  - *Other subjects* lists every subject a teacher is qualified for, for cover;
+  - teachers are sorted designated first, then free, then by that day's load;
+  - **Find a free teacher** lists everyone qualified who is free at that time, least busy
+    first. Pick a teacher, then one of their subjects under their name.
+- No designated-teacher warning for an extra lesson.
+
+**Changed**
+- CLAUDE.md rule 6 now describes the extra-lesson exception, agreed with the school.
+- Migrations scheduling 0005 and generator 0003 add `is_extra`, default False. No data
+  changes.

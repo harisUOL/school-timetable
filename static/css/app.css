@@ -400,6 +400,18 @@ button.slot:hover { border-color: var(--primary); box-shadow: 0 0 0 1px var(--pr
 .choice-meta { font-size: .8rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .choice-reason { grid-column: 2 / -1; font-size: .8rem; color: var(--error); }
 .choice .badge-ok { grid-column: 2 / -1; justify-self: start; }
+.choice-note { grid-column: 2 / -1; font-size: .8rem; color: var(--text-muted); }
+.choice.is-extra .choice-main { font-weight: 500; }
+.free-teacher-btn { margin-bottom: .75rem; }
+.other-subjects { margin-top: .75rem; }
+.free-subjects { margin: 0 0 .5rem 1.6rem; padding-left: .75rem; border-left: 3px solid var(--primary); }
+.free-subjects legend { font-size: .9rem; }
+.other-subjects summary { cursor: pointer; font-weight: 600; padding: .35rem 0; }
+.other-subjects .choice-list { margin-top: .4rem; }
+.slot-extra { position: absolute; bottom: 2px; left: 5px; font-size: .6rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.req-extras { margin-top: 1rem; border-top: 1px solid var(--border); padding-top: .75rem; }
+.req-extras h3 { font-size: .95rem; margin: 0; }
+.req-extras ul { margin: .25rem 0 0; padding-left: 1.1rem; }
 .lesson-summary { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem; margin: 0; }
 .lesson-summary dt { color: var(--text-muted); }
 .lesson-summary dd { margin: 0; font-weight: 600; }

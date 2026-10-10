@@ -53,6 +53,14 @@ class TimetableEntry(models.Model):
         default=False,
         help_text="Locked lessons are kept as they are by the automatic generator.",
     )
+    is_extra = models.BooleanField(
+        default=False,
+        help_text=(
+            "An extra lesson chosen in the builder: beyond the subject's weekly number, or a subject "
+            "the class has no requirement for (e.g. covering an absent teacher). It does not count "
+            "towards requirements."
+        ),
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

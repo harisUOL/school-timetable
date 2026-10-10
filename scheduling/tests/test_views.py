@@ -98,7 +98,7 @@ class SlotOptionsApiTests(ApiTestCase):
         self.assertTrue(data["ok"])
         self.assertEqual(data["class"]["label"], "10A")
         self.assertEqual(data["period"]["roman"], "I")
-        self.assertEqual([s["name"] for s in data["subjects"]], ["Mathematics", "Physics"])
+        self.assertEqual([(s["name"], s["kind"]) for s in data["subjects"]], [("Mathematics", "required"), ("Physics", "required"), ("Biology", "other")])
 
     def test_error_paths(self):
         url = reverse("scheduling:slot_options")

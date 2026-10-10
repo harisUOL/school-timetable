@@ -94,13 +94,17 @@ class SlotOptionsTests(SchoolFixture):
         teachers = self.maths_teachers(selectors.slot_options(self.c10a, Day.TUESDAY, 1))
         self.assertEqual(teachers["Ms Monday"]["reasons"][0]["code"], "NO_CAPACITY_CONFIGURED")
 
-    def test_met_subjects_are_disabled_with_reason(self):
+    def test_met_subjects_are_offered_as_extra_lessons(self):
         self.assign(period=1, subject=self.physics, teacher=self.mr_physics)
         self.assign(period=2, subject=self.physics, teacher=self.mr_physics)
         options = selectors.slot_options(self.c10a, Day.MONDAY, 3)
         physics = next(s for s in options["subjects"] if s["name"] == "Physics")
         self.assertTrue(physics["met"])
-        self.assertIn("All 2 Physics lessons", physics["disabled_reason"])
+        self.assertEqual(physics["note"], "All 2 placed: another one is an extra lesson.")
+        # Subjects the class does not take are offered too, for cover.
+        biology = next(s for s in options["subjects"] if s["name"] == "Biology")
+        self.assertEqual(biology["kind"], "other")
+        self.assertEqual([t["name"] for t in biology["teachers"]], ["Mr Unqualified"])
 
     def test_occupied_slot_excludes_its_own_lesson(self):
         self.assign(period=1, subject=self.physics, teacher=self.mr_physics)

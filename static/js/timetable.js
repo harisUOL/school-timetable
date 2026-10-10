@@ -182,6 +182,7 @@ if (grid && dialog && csrfInput) {
     showErrors([]);
     if (state.mode === "activity-view") renderActivity();
     else if (state.mode === "activity") renderActivityForm();
+    else if (state.mode === "free") renderFreeTeachers();
     else if (state.mode === "view") renderLesson();
     else renderPicker();
   }
@@ -197,7 +198,11 @@ if (grid && dialog && csrfInput) {
         el("dt", { text: "Teacher" }),
         el("dd", { text: entry.teacher }),
         el("dt", { text: "Status" }),
-        el("dd", { text: entry.is_locked ? "Locked (kept by the generator)" : "Not locked" })
+        el("dd", {
+          text: [entry.is_locked ? "Locked (kept by the generator)" : "Not locked", entry.is_extra ? "extra lesson" : ""]
+            .filter(Boolean)
+            .join(" · "),
+        })
       )
     );
     setFooter(
@@ -230,37 +235,52 @@ if (grid && dialog && csrfInput) {
     const subjects = o.subjects;
     if (!subjects.length) {
       regions.body.replaceChildren(
-        el("p", { text: `${o.class.label} has no subject requirements. Add them in the admin first.` })
+        el("p", { text: `No active teacher is qualified for any subject yet. Add qualifications in the admin first.` })
       );
       setFooter(activityButton("Add an activity instead"), el("span", { class: "spacer" }), cancelButton());
       return;
     }
 
+    // Every subject can be chosen. A subject whose weekly lessons are all placed, or one the
+    // class does not take, becomes an extra lesson (it does not count towards requirements).
+    const subjectChoice = (subject) => {
+      const id = `subject-${subject.id}`;
+      return el(
+        "label",
+        { class: `choice${subject.met ? " is-extra" : ""}`, for: id },
+        el("input", {
+          type: "radio",
+          name: "subject",
+          id,
+          value: subject.id,
+          checked: state.subjectId === subject.id,
+          onchange: () => chooseSubject(subject.id),
+        }),
+        el("span", { class: "choice-main", text: subject.name }),
+        subject.kind === "required" ? el("span", { class: "choice-meta", text: `${subject.assigned}/${subject.required}` }) : null,
+        subject.note ? el("span", { class: "choice-note", text: subject.note }) : null
+      );
+    };
+    const required = subjects.filter((s) => s.kind === "required");
+    const others = subjects.filter((s) => s.kind === "other");
+    const otherOpen = others.some((s) => s.id === state.subjectId);
     const subjectList = el(
-      "fieldset",
-      { class: "choice-list" },
-      el("legend", { text: "Subject" }),
-      subjects.map((subject) => {
-        const isCurrent = o.entry && o.entry.subject_id === subject.id;
-        const disabled = subject.met && !isCurrent;
-        const id = `subject-${subject.id}`;
-        return el(
-          "label",
-          { class: `choice${disabled ? " is-disabled" : ""}`, for: id },
-          el("input", {
-            type: "radio",
-            name: "subject",
-            id,
-            value: subject.id,
-            checked: state.subjectId === subject.id,
-            disabled,
-            onchange: () => chooseSubject(subject.id),
-          }),
-          el("span", { class: "choice-main", text: subject.name }),
-          el("span", { class: "choice-meta", text: `${subject.assigned}/${subject.required}` }),
-          disabled ? el("span", { class: "choice-reason", text: subject.disabled_reason }) : null
-        );
-      })
+      "div",
+      {},
+      el(
+        "button",
+        { type: "button", class: "btn btn-small free-teacher-btn", onclick: () => { state.mode = "free"; render(); } },
+        "Find a free teacher instead"
+      ),
+      el("fieldset", { class: "choice-list" }, el("legend", { text: `${o.class.label}'s subjects` }), required.map(subjectChoice)),
+      others.length
+        ? el(
+            "details",
+            { class: "other-subjects", open: otherOpen },
+            el("summary", { text: `Other subjects (${others.length}) — for cover or an extra lesson` }),
+            el("fieldset", { class: "choice-list" }, el("legend", { class: "visually-hidden", text: "Other subjects" }), others.map(subjectChoice))
+          )
+        : null
     );
 
     regions.body.replaceChildren(
@@ -288,6 +308,11 @@ if (grid && dialog && csrfInput) {
       el("button", { type: "button", class: "btn btn-primary", "data-action": "confirm", onclick: assignLesson, text: confirmLabel })
     );
     updateConfirm();
+  }
+
+  // An extra lesson: the subject's weekly lessons are all placed, or the class does not take it.
+  function isExtra(subject) {
+    return Boolean(subject) && (subject.kind === "other" || subject.met);
   }
 
   function currentSubject() {
@@ -374,6 +399,9 @@ if (grid && dialog && csrfInput) {
     const warning = regions.body.querySelector("[data-region=warning]");
     if (!warning) return;
     warning.replaceChildren();
+    if (subject && isExtra(subject)) {
+      warning.append(el("p", { class: "alert alert-info", text: `${subject.note} It will not count towards ${state.options.class.label}'s requirements.` }));
+    }
     if (subject && state.teacherId && subject.designated_teacher_id && subject.designated_teacher_id !== state.teacherId) {
       warning.append(
         el("p", {
@@ -382,6 +410,109 @@ if (grid && dialog && csrfInput) {
         })
       );
     }
+  }
+
+  // ---- Find a free teacher: everyone who could take this slot, least loaded first ----
+
+  function freeTeachers() {
+    const byTeacher = new Map();
+    for (const subject of state.options.subjects) {
+      for (const t of subject.teachers) {
+        if (t.status !== "available") continue;
+        if (!byTeacher.has(t.id)) byTeacher.set(t.id, { ...t, subjects: [] });
+        byTeacher.get(t.id).subjects.push(subject);
+      }
+    }
+    const order = (s) => (s.kind === "required" && !s.met ? 0 : s.kind === "required" ? 1 : 2);
+    for (const t of byTeacher.values()) t.subjects.sort((a, b) => order(a) - order(b) || a.name.localeCompare(b.name));
+    return [...byTeacher.values()].sort(
+      (a, b) => a.day_load.assigned - b.day_load.assigned || a.week_load.assigned - b.week_load.assigned || a.name.localeCompare(b.name)
+    );
+  }
+
+  function renderFreeTeachers() {
+    const o = state.options;
+    const teachers = freeTeachers();
+    const day = o.day.label.slice(0, 3);
+    const chosen = teachers.find((t) => t.id === state.teacherId) || null;
+    // The chosen teacher's subjects open right under their name, so a long list needs no scrolling back.
+    const subjectsFor = (t) =>
+      el(
+        "fieldset",
+        { class: "choice-list free-subjects" },
+        el("legend", { text: `Subject with ${t.name}` }),
+        t.subjects.map((s) =>
+          el(
+            "label",
+            { class: "choice", for: `free-subject-${s.id}` },
+            el("input", {
+              type: "radio",
+              name: "free-subject",
+              id: `free-subject-${s.id}`,
+              checked: state.subjectId === s.id,
+              onchange: () => {
+                state.subjectId = s.id;
+                updateConfirm();
+              },
+            }),
+            el("span", { class: "choice-main", text: s.name }),
+            s.kind === "required" ? el("span", { class: "choice-meta", text: `${s.assigned}/${s.required}` }) : null,
+            s.note ? el("span", { class: "choice-note", text: s.note }) : null
+          )
+        ),
+        el("div", { class: "picker-warning", "data-region": "warning", "aria-live": "polite" })
+      );
+    const teacherList = el(
+      "fieldset",
+      { class: "choice-list" },
+      el("legend", { text: `Free on ${o.day.label}, period ${o.period.roman} (${teachers.length}), least busy first` }),
+      teachers.length
+        ? teachers.flatMap((t) => [
+            el(
+              "label",
+              { class: "choice", for: `free-${t.id}` },
+              el("input", {
+                type: "radio",
+                name: "free-teacher",
+                id: `free-${t.id}`,
+                checked: state.teacherId === t.id,
+                onchange: () => {
+                  state.teacherId = t.id;
+                  state.subjectId = t.subjects[0].id;
+                  render();
+                  regions.body.querySelector(`input[name=free-subject]:checked`)?.focus();
+                },
+              }),
+              el("span", { class: "choice-main", text: t.name }),
+              el("span", { class: "choice-meta", text: `${day} ${t.day_load.assigned}/${t.day_load.max} · Week ${t.week_load.assigned}/${t.week_load.max}` }),
+              el("span", { class: "choice-note", text: t.subjects.map((s) => s.code || s.name).join(", ") })
+            ),
+            chosen === t ? subjectsFor(t) : null,
+          ])
+        : el("p", { class: "muted", text: "Nobody qualified is free at this time." })
+    );
+    regions.body.replaceChildren(el("div", { class: "free-teachers" }, teacherList));
+    setFooter(
+      el("button", {
+        type: "button",
+        class: "btn",
+        onclick: () => {
+          state.mode = "edit";
+          render();
+        },
+        text: "Choose by subject",
+      }),
+      el("span", { class: "spacer" }),
+      cancelButton(),
+      el("button", {
+        type: "button",
+        class: "btn btn-primary",
+        "data-action": "confirm",
+        onclick: assignLesson,
+        text: o.entry ? "Save change" : "Assign lesson",
+      })
+    );
+    updateConfirm();
   }
 
   // ---- Activities (assembly, activity session: not a lesson) -------------
@@ -577,9 +708,10 @@ if (grid && dialog && csrfInput) {
 
   function assignLesson(event) {
     if (!state.subjectId || !state.teacherId) return;
+    const subject = currentSubject();
     return submit(
       urls.assign,
-      { subject_id: state.subjectId, teacher_id: state.teacherId, expected: expectedVersion() },
+      { subject_id: state.subjectId, teacher_id: state.teacherId, extra: isExtra(subject), expected: expectedVersion() },
       event
     );
   }

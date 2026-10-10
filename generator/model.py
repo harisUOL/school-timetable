@@ -101,6 +101,7 @@ def load_problem(*, keep_locked_only):
             class_label=str(e.class_group),
             subject_name=e.subject.name,
             teacher_name=e.teacher.name,
+            is_extra=e.is_extra,
         )
         for e in entries
     ]
@@ -149,6 +150,8 @@ class Analysis:
         self.kept_class_subject_day = defaultdict(int)
         for k in problem.kept:
             kept_day[(k.teacher_id, k.day)] += 1
+            if k.is_extra:
+                continue  # an extra lesson takes a slot and capacity but meets no requirement
             kept_req[(k.class_id, k.subject_id)] += 1
             self.kept_teachers[(k.class_id, k.subject_id)].add(k.teacher_id)
             self.kept_class_subject_day[(k.class_id, k.subject_id, k.day)] += 1

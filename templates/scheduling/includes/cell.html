@@ -7,6 +7,7 @@
     <span class="slot-subject">{{ cell.entry.subject.code|default:cell.entry.subject.name }}</span>
     <span class="slot-teacher">{{ cell.entry.teacher.name }}</span>
     {% if cell.entry.is_locked %}<span class="slot-lock" title="Locked">🔒</span>{% endif %}
+    {% if cell.entry.is_extra %}<span class="slot-extra" title="Extra lesson: does not count towards requirements">extra</span>{% endif %}
     {% elif can_edit %}<span class="slot-add" aria-hidden="true">+</span>{% endif %}
   {% if can_edit %}</button>{% else %}</div>{% endif %}
 </td>{% endif %}

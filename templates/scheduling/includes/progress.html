@@ -21,3 +21,10 @@
   <li class="muted">No subject requirements for this class yet.</li>
   {% endfor %}
 </ul>
+{% if progress.extras %}
+<div class="req-extras">
+  <h3>Extra lessons</h3>
+  <p class="muted">Chosen on purpose, beyond the requirements.</p>
+  <ul>{% for name, count in progress.extras %}<li>{{ name }} <span class="muted">× {{ count }}</span></li>{% endfor %}</ul>
+</div>
+{% endif %}

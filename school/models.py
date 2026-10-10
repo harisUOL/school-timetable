@@ -241,7 +241,9 @@ class ClassGroup(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.grade.name}{self.section.name}"
+        # "10A", but "VII A" and "Sr Nur A" when the grade name ends in a letter.
+        separator = " " if self.grade.name[-1:].isalpha() else ""
+        return f"{self.grade.name}{separator}{self.section.name}"
 
     def total_required_periods(self):
         return (

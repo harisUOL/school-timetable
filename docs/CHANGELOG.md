@@ -305,3 +305,29 @@ Applying 486 lessons through the service takes about 5 s on SQLite.
   CLAUDE.md.
 
 **Try it**: on the dashboard, use *Print all classes*, *Whole-school PDF* or *Excel workbook*.
+
+## Import: teacher allotment workbook
+
+**Built**
+- `manage.py import_allotment <file.xlsx> [--dry-run] [--report skipped.csv]` reads the
+  "Allotment" sheet (Teacher / Class / Subject / Periods per week) and creates or updates:
+  - grades (Sr Nur, Prep, I–X), classes and subjects;
+  - teachers and their qualifications;
+  - each class's requirements, with the allotted teacher as the designated teacher.
+- It sets the week to Monday–Friday 9 periods and Saturday 6.
+- New teachers get capacity equal to the day's length on every operating day. Capacities
+  that already exist are never overwritten.
+- Re-running with an updated sheet brings each imported class's requirements in line
+  with it.
+- Class labels now read "VII A" / "Sr Nur A" when the grade name ends in a letter.
+  Numeric grades stay "10A".
+
+**Decisions** (agreed with the school)
+- Allocations the model cannot represent yet are skipped and listed, so their periods stay
+  free in each class's week. Rule 4 of CLAUDE.md is unchanged.
+  - Combined lessons: one row for several classes, such as AF6-10 across VI–X, TKW pairs,
+    a PHE pair and HIN/URD for X A + X C.
+  - Parallel groups: several teachers taking one class and subject at once, such as ScL
+    labs, HIN/URD groups, A&M, CL, HC, and X History/Civics.
+- Subject codes with a clear meaning get full names. Unknown codes (TKW, CL, A&M, ACT,
+  AF1-5, AF6-10) keep the code as their name and can be renamed in the admin.

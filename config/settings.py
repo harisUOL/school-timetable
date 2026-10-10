@@ -198,6 +198,10 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
+# Static files are collected when the app starts (railway.json), because files
+# collected during the build did not reach Railway's running container. As a
+# safety net WhiteNoise can also serve straight from the app's static folders.
+WHITENOISE_USE_FINDERS = True
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     # Compressed copies of CSS/JS, served by WhiteNoise.

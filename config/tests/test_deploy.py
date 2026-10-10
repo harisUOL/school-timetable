@@ -26,3 +26,14 @@ class HealthCheckTests(TestCase):
     def test_is_exempt_from_the_https_redirect(self):
         self.assertEqual(self.client.get("/healthz/").status_code, 200)
         self.assertEqual(self.client.get("/accounts/login/").status_code, 301)
+
+
+class StaticFilesTests(TestCase):
+    @override_settings(DEBUG=False)
+    def test_whitenoise_serves_static_files_without_collectstatic(self):
+        """The production failure: no collected files. WhiteNoise must still serve them."""
+        for path, kind in [("/static/css/app.css", "text/css"), ("/static/img/logo-96.png", "image/png")]:
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response["Content-Type"].startswith(kind))

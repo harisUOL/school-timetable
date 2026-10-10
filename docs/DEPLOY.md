@@ -5,7 +5,7 @@ ready for it:
 
 | File | Does |
 |---|---|
-| `railway.json` | Build: `collectstatic`. Before each deploy: `migrate`. Start: gunicorn (2 workers × 4 threads, 900 s timeout so a long generator run is not cut off). Health check: `/healthz/`. |
+| `railway.json` | Before each deploy: `migrate`. Start: `collectstatic`, then gunicorn (2 workers × 4 threads, 900 s timeout so a long generator run is not cut off). Health check: `/healthz/`. |
 | `.python-version` | Python 3.12 |
 | `requirements.txt` | Adds `psycopg[binary]` (PostgreSQL), `gunicorn` (WSGI server), `whitenoise` (static files) |
 | `config/settings.py` | Reads `DATABASE_URL`, and trusts `RAILWAY_PUBLIC_DOMAIN` for allowed hosts, CSRF and HTTPS |

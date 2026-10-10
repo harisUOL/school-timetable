@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Teacher workloads{% endblock %}
+{% block heading %}Teacher workloads{% endblock %}
+{% block subheading %}<p class="muted">Lessons assigned / daily maximum, counted across every class.</p>{% endblock %}
+
+{% block content %}
+<form method="get" class="card form-inline" aria-label="Filter workloads">
+  <div class="field">
+    <label for="filter-subject">Subject</label>
+    <select id="filter-subject" name="subject">
+      <option value="">All subjects</option>
+      {% for subject in subjects %}<option value="{{ subject.pk }}"{% if subject.pk == subject_id %} selected{% endif %}>{{ subject.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="filter-sort">Sort by</label>
+    <select id="filter-sort" name="sort">
+      {% for key, label in sorts %}<option value="{{ key }}"{% if key == sort %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <button type="submit" class="btn">Apply</button>
+</form>
+
+<ul class="legend" aria-label="Legend">
+  {% for key, label in legend %}<li><span class="load-swatch load-{{ key }}" aria-hidden="true"></span>{{ label }}</li>{% endfor %}
+</ul>
+
+<div class="card">
+  <div class="table-scroll">
+    <table class="table workload-table">
+      <caption class="visually-hidden">Lessons assigned per teacher per day</caption>
+      <thead>
+        <tr>
+          <th scope="col">Teacher</th>
+          {% for day in week %}<th scope="col" class="num">{{ day.short_label }}</th>{% endfor %}
+          <th scope="col" class="num">Week</th>
+          <th scope="col" class="num">Remaining</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <th scope="row">
+            <a href="{% url 'scheduling:teacher_timetable' row.teacher.pk %}">{{ row.teacher.name }}</a>
+            <span class="th-sub">{{ row.subjects|join:", " }}</span>
+          </th>
+          {% for cell in row.cells %}
+          <td class="num load load-{{ cell.state }}" title="{{ cell.state_label }}">
+            <span class="load-value">{{ cell.label }}</span>
+            <span class="visually-hidden">{{ cell.state_label }}</span>
+          </td>
+          {% endfor %}
+          <td class="num load load-{{ row.state }}" title="{{ row.state_label }}"><span class="load-value strong">{{ row.assigned }}/{{ row.max }}</span><span class="visually-hidden">{{ row.state_label }}</span></td>
+          <td class="num">{{ row.remaining }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="{{ week|length|add:3 }}" class="empty">No teachers match.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -109,3 +109,40 @@ python manage.py runserver   # sign in at /accounts/login/
 - Viewers see a read-only grid: no buttons, no JS module, no reset.
 
 **Try it**: open *Class Timetables*, pick a grade and a class, and click any slot.
+
+## Phase 4: Workload and requirement tracking
+
+**Built**
+- **Teacher Workloads** (`/workloads/`): teachers × operating days as `assigned/max`.
+  - Weekly totals and remaining capacity.
+  - Colour states with text labels: free, near full, full, over capacity, no capacity.
+  - Filter by subject; sort by name, highest load or most remaining.
+- **Teacher timetable** (`/teachers/<id>/`):
+  - the teacher's week across all classes, with load per day;
+  - each lesson links to its slot in the class timetable.
+- **Teachers** (`/teachers/`): subjects, designated load, assigned/capacity and status.
+  **Subjects** (`/subjects/`): qualified teachers, demand, lessons placed and capacity.
+- **Subject Requirements** (`/requirements/`): every class × subject.
+  - Columns: required, assigned, remaining and progress, the designated teacher, who
+    actually teaches it, and a "Differs" flag.
+  - Filters by grade and class.
+- **Conflict report** (`/conflicts/`):
+  - Re-checks every live lesson with the same validators the builder uses, against the
+    current configuration.
+  - Reports deactivated teachers, removed qualifications, removed requirements,
+    requirements reduced below the lessons placed, capacities lowered below the
+    lessons placed, and removed capacity records.
+  - Each conflict links to its slot(s) (`/timetable/<class>/#slot-<day>-<period>`),
+    and the linked cell is highlighted.
+- Dashboard: completion per class, the five most-loaded teachers, and the conflict count.
+
+**Decisions**
+- Capacity and requirement overruns are reported once per teacher-day or class-subject,
+  listing every involved slot. No single lesson is "the" wrong one, so the person
+  chooses which to move.
+- "Near full" means one lesson left or at least 75 % used.
+- The Teachers page doubles as the target of the teacher picker (`?teacher=<id>`), so
+  no inline JavaScript is needed.
+
+**Try it**: assign some lessons. Then lower a teacher's capacity in *Availability* and
+open *Subject Requirements → Conflict report*.

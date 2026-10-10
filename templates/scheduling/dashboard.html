@@ -17,6 +17,47 @@
   <p>{{ completion.assigned }} of {{ completion.required }} required lessons placed ({{ completion.percent }}%).</p>
 </section>
 
+<div class="dash-grid">
+<section class="card">
+  <h2>Completion by class</h2>
+  <ul class="req-list">
+    {% for row in class_completion %}
+    <li class="req-item{% if row.required and row.assigned == row.required %} is-met{% endif %}">
+      <div class="req-head"><a class="req-name" href="{% url 'scheduling:class_timetable' row.class_group.pk %}">{{ row.class_group }}</a><span class="req-count">{{ row.assigned }}/{{ row.required }}</span></div>
+      <div class="progress" role="progressbar" aria-label="{{ row.class_group }} completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ row.percent }}"><span class="progress-bar{% if row.percent == 100 %} is-complete{% endif %}" style="width: {{ row.percent }}%"></span></div>
+    </li>
+    {% empty %}<li class="muted">No classes yet.</li>{% endfor %}
+  </ul>
+</section>
+
+<div>
+<section class="card">
+  <h2>Conflicts</h2>
+  {% if conflict_count %}
+  <p><span class="badge badge-error">{{ conflict_count }}</span> lesson problem{{ conflict_count|pluralize }} caused by configuration changes.</p>
+  <a class="btn btn-small" href="{% url 'scheduling:conflicts' %}">Open the conflict report</a>
+  {% else %}
+  <p>No conflicts. Every lesson fits the current configuration.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Most-loaded teachers</h2>
+  {% if busiest %}
+  <table class="table">
+    <thead><tr><th scope="col">Teacher</th><th scope="col" class="num">This week</th><th scope="col" class="num">Remaining</th></tr></thead>
+    <tbody>
+      {% for row in busiest %}
+      <tr><th scope="row"><a href="{% url 'scheduling:teacher_timetable' row.teacher.pk %}">{{ row.teacher.name }}</a></th><td class="num"><span class="load-pill load-{{ row.state }}">{{ row.assigned }}/{{ row.max }}</span></td><td class="num">{{ row.remaining }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <a href="{% url 'scheduling:workloads' %}?sort=load">All workloads</a>
+  {% else %}
+  <p class="muted">No lessons have been scheduled yet.</p>
+  {% endif %}
+</section>
+
 <section class="card">
   <h2>Data health</h2>
   {% if top_issues %}
@@ -30,4 +71,6 @@
   <p>No configuration problems found.</p>
   {% endif %}
 </section>
+</div>
+</div>
 {% endblock %}

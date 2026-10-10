@@ -8,11 +8,17 @@ from dataclasses import dataclass, field
 
 from django.db.models import Count
 
+from school.constants import Day
 from school.day_schedule import get_week_schedule
 from school.models import SubjectRequirement, Teacher, TeacherDailyAvailability
 
 from . import validators as v
 from .models import TimetableEntry
+
+
+def day_label(day):
+    return Day(day).label
+
 
 ROMAN = [(10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")]
 
@@ -376,3 +382,427 @@ def slot_options(class_group, day, period):
         ),
         "subjects": subjects,
     }
+
+
+# --------------------------------------------------------------------------
+# Teacher workloads
+# --------------------------------------------------------------------------
+
+FREE, NEAR_FULL, FULL, OVER, NO_CAPACITY = "free", "near", "full", "over", "none"
+LOAD_STATE_LABELS = {
+    FREE: "Free",
+    NEAR_FULL: "Near full",
+    FULL: "Full",
+    OVER: "Over capacity",
+    NO_CAPACITY: "No capacity",
+}
+
+
+def load_state(assigned, maximum):
+    if maximum is None:
+        return OVER if assigned else NO_CAPACITY
+    if assigned > maximum:
+        return OVER
+    if assigned == maximum:
+        return FULL
+    if maximum - assigned == 1 or assigned >= 0.75 * maximum:
+        return NEAR_FULL
+    return FREE
+
+
+@dataclass
+class LoadCell:
+    day: int
+    day_label: str
+    assigned: int
+    max: int | None
+
+    @property
+    def remaining(self):
+        return max((self.max or 0) - self.assigned, 0)
+
+    @property
+    def state(self):
+        return load_state(self.assigned, self.max)
+
+    @property
+    def state_label(self):
+        return LOAD_STATE_LABELS[self.state]
+
+    @property
+    def label(self):
+        return f"{self.assigned}/{self.max}" if self.max is not None else ("—" if not self.assigned else f"{self.assigned}/0")
+
+
+@dataclass
+class WorkloadRow:
+    teacher: Teacher
+    subjects: list
+    cells: list
+
+    @property
+    def assigned(self):
+        return sum(c.assigned for c in self.cells)
+
+    @property
+    def max(self):
+        return sum(c.max or 0 for c in self.cells)
+
+    @property
+    def remaining(self):
+        return max(self.max - self.assigned, 0)
+
+    @property
+    def percent(self):
+        return round(100 * self.assigned / self.max) if self.max else (100 if self.assigned else 0)
+
+    @property
+    def state(self):
+        if any(c.state == OVER for c in self.cells):
+            return OVER
+        return load_state(self.assigned, self.max if self.max else None)
+
+    @property
+    def state_label(self):
+        return LOAD_STATE_LABELS[self.state]
+
+
+WORKLOAD_SORTS = {
+    "name": ("Name", lambda r: r.teacher.name.lower()),
+    "load": ("Highest load", lambda r: (-r.percent, -r.assigned, r.teacher.name.lower())),
+    "remaining": ("Most remaining", lambda r: (-r.remaining, r.teacher.name.lower())),
+}
+
+
+def teacher_workloads(*, subject_id=None, sort="name", teachers=None):
+    """Teachers × operating days as assigned/max, across all classes."""
+    week = get_week_schedule()
+    if teachers is None:
+        teachers = Teacher.objects.filter(is_active=True)
+        if subject_id:
+            teachers = teachers.filter(teacher_subjects__subject_id=subject_id)
+    teachers = list(teachers.prefetch_related("subjects").distinct())
+    ids = [t.pk for t in teachers]
+    counts = defaultdict(int)
+    for tid, day, n in (
+        TimetableEntry.objects.filter(teacher_id__in=ids)
+        .values_list("teacher_id", "day")
+        .annotate(n=Count("id"))
+    ):
+        counts[(tid, day)] = n
+    caps = {
+        (t, d): m
+        for t, d, m in TeacherDailyAvailability.objects.filter(teacher_id__in=ids).values_list(
+            "teacher_id", "day", "max_periods"
+        )
+    }
+    rows = [
+        WorkloadRow(
+            teacher,
+            [s.name for s in teacher.subjects.all()],
+            [LoadCell(s.day, s.short_label, counts[(teacher.pk, s.day)], caps.get((teacher.pk, s.day))) for s in week],
+        )
+        for teacher in teachers
+    ]
+    _, key = WORKLOAD_SORTS.get(sort, WORKLOAD_SORTS["name"])
+    return week, sorted(rows, key=key)
+
+
+# --------------------------------------------------------------------------
+# Teacher timetable
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class TeacherRow:
+    day: int
+    label: str
+    short_label: str
+    cells: list
+    load: LoadCell
+
+
+def teacher_grid(teacher):
+    week = get_week_schedule()
+    width, recess_after, columns = _header(week)
+    entries = defaultdict(dict)
+    for entry in TimetableEntry.objects.with_related().filter(teacher=teacher):
+        entries[entry.day][entry.period] = entry
+    caps = dict(teacher.daily_availability.values_list("day", "max_periods"))
+    rows = [
+        TeacherRow(
+            s.day,
+            s.label,
+            s.short_label,
+            _row_cells(s, width, recess_after, entries[s.day]),
+            LoadCell(s.day, s.short_label, len(entries[s.day]), caps.get(s.day)),
+        )
+        for s in week
+    ]
+    filled = sum(len(by_period) for by_period in entries.values())
+    return Grid(columns, rows, filled, sum(caps.get(s.day, 0) for s in week))
+
+
+# --------------------------------------------------------------------------
+# Teachers, subjects and requirements overviews
+# --------------------------------------------------------------------------
+
+
+def teacher_summaries():
+    """Every teacher with subjects, weekly load and designated load."""
+    _, rows = teacher_workloads(teachers=Teacher.objects.all())
+    designated = defaultdict(int)
+    for tid, periods in SubjectRequirement.objects.filter(teacher__isnull=False).values_list(
+        "teacher_id", "periods_per_week"
+    ):
+        designated[tid] += periods
+    for row in rows:
+        row.designated = designated[row.teacher.pk]
+    return rows
+
+
+@dataclass
+class SubjectSummary:
+    subject: object
+    teachers: list
+    demand: int
+    placed: int
+    supply: int
+
+    @property
+    def shortfall(self):
+        return max(self.demand - self.supply, 0)
+
+
+def subject_summaries():
+    from school.models import Subject
+
+    week_days = {s.day for s in get_week_schedule()}
+    weekly = defaultdict(int)
+    for tid, day, cap in TeacherDailyAvailability.objects.values_list("teacher_id", "day", "max_periods"):
+        if day in week_days:
+            weekly[tid] += cap
+    demand = defaultdict(int)
+    for sid, periods in SubjectRequirement.objects.values_list("subject_id", "periods_per_week"):
+        demand[sid] += periods
+    placed = dict(
+        TimetableEntry.objects.values_list("subject_id").annotate(n=Count("id")).values_list("subject_id", "n")
+    )
+    result = []
+    for subject in Subject.objects.prefetch_related("teachers"):
+        teachers = [t for t in subject.teachers.all() if t.is_active]
+        result.append(
+            SubjectSummary(
+                subject,
+                sorted(teachers, key=lambda t: t.name),
+                demand[subject.pk],
+                placed.get(subject.pk, 0),
+                sum(weekly[t.pk] for t in teachers),
+            )
+        )
+    return result
+
+
+@dataclass
+class RequirementRow:
+    requirement: SubjectRequirement
+    assigned: int
+    teachers: list  # names of teachers actually teaching it
+
+    @property
+    def required(self):
+        return self.requirement.periods_per_week
+
+    @property
+    def remaining(self):
+        return max(self.required - self.assigned, 0)
+
+    @property
+    def is_over(self):
+        return self.assigned > self.required
+
+    @property
+    def over_by(self):
+        return max(self.assigned - self.required, 0)
+
+    @property
+    def is_met(self):
+        return self.assigned >= self.required
+
+    @property
+    def designated(self):
+        return self.requirement.teacher.name if self.requirement.teacher else ""
+
+    @property
+    def differs(self):
+        return bool(self.designated) and any(name != self.designated for name in self.teachers)
+
+    @property
+    def percent(self):
+        return min(round(100 * self.assigned / self.required), 100) if self.required else 0
+
+
+def requirements_overview(*, grade_id=None, class_id=None):
+    requirements = SubjectRequirement.objects.select_related(
+        "class_group__grade", "class_group__section", "subject", "teacher"
+    )
+    if grade_id:
+        requirements = requirements.filter(class_group__grade_id=grade_id)
+    if class_id:
+        requirements = requirements.filter(class_group_id=class_id)
+    placed = defaultdict(list)
+    for class_id_, subject_id, name in TimetableEntry.objects.values_list(
+        "class_group_id", "subject_id", "teacher__name"
+    ):
+        placed[(class_id_, subject_id)].append(name)
+    return [
+        RequirementRow(r, len(placed[(r.class_group_id, r.subject_id)]), sorted(set(placed[(r.class_group_id, r.subject_id)])))
+        for r in requirements
+    ]
+
+
+@dataclass
+class ClassCompletion:
+    class_group: object
+    required: int
+    assigned: int
+
+    @property
+    def percent(self):
+        return min(round(100 * self.assigned / self.required), 100) if self.required else 0
+
+
+def class_completion():
+    from school.models import ClassGroup
+
+    totals = defaultdict(lambda: [0, 0])
+    for row in requirements_overview():
+        totals[row.requirement.class_group_id][0] += row.required
+        totals[row.requirement.class_group_id][1] += min(row.assigned, row.required)
+    return [
+        ClassCompletion(c, *totals[c.pk]) for c in ClassGroup.objects.with_structure()
+    ]
+
+
+# --------------------------------------------------------------------------
+# Conflicts: lessons that break the rules after the configuration changed
+# --------------------------------------------------------------------------
+
+CONFLICT_KINDS = {
+    v.TEACHER_INACTIVE: "Lessons taught by an inactive teacher",
+    v.NOT_QUALIFIED: "Lessons taught by an unqualified teacher",
+    v.SUBJECT_NOT_REQUIRED: "Lessons of a subject the class no longer takes",
+    v.REQUIREMENT_MET: "More lessons than the requirement allows",
+    v.CAPACITY_EXCEEDED: "Teachers over their daily capacity",
+    v.NO_CAPACITY_CONFIGURED: "Lessons on a day the teacher is unavailable",
+    v.INVALID_SLOT: "Lessons outside the school week",
+    v.TEACHER_CLASH: "Teacher double-booked",
+}
+
+
+@dataclass
+class SlotLink:
+    class_id: int
+    label: str
+    day: int
+    period: int
+
+
+@dataclass
+class Conflict:
+    code: str
+    message: str
+    slots: list
+
+
+@dataclass
+class ConflictGroup:
+    code: str
+    title: str
+    conflicts: list
+
+
+def find_conflicts():
+    """
+    Re-check every live lesson against the current configuration with the
+    same validators the builder uses. Per-lesson problems are listed per
+    lesson; capacity and requirement overruns are grouped per teacher-day and
+    per class-subject, since no single lesson is "the" wrong one.
+    """
+    from school.models import ClassGroup, Subject
+
+    state = v.MemoryState.from_database()
+    teachers = {t.pk: t for t in Teacher.objects.all()}
+    classes = {c.pk: c for c in ClassGroup.objects.with_structure()}
+    subjects = {s.pk: s for s in Subject.objects.all()}
+
+    per_lesson = []
+    grouped = defaultdict(list)  # (code, key) -> [lesson]
+    for lesson in sorted(state.lessons.values(), key=lambda l: (l.class_label, l.day, l.period)):
+        violations = v.validate_assignment(
+            classes[lesson.class_id],
+            lesson.day,
+            lesson.period,
+            subjects[lesson.subject_id],
+            teachers[lesson.teacher_id],
+            exclude_entry_id=lesson.key,
+            state=state,
+        )
+        for violation in violations:
+            if violation.code in (v.CAPACITY_EXCEEDED, v.NO_CAPACITY_CONFIGURED):
+                grouped[(violation.code, (lesson.teacher_id, lesson.day))].append(lesson)
+            elif violation.code == v.REQUIREMENT_MET:
+                grouped[(violation.code, (lesson.class_id, lesson.subject_id))].append(lesson)
+            else:
+                per_lesson.append(
+                    Conflict(
+                        violation.code,
+                        f"{lesson.class_label} {v.slot_text(lesson.day, lesson.period)}: {violation.message}",
+                        [_link(lesson)],
+                    )
+                )
+
+    conflicts = list(per_lesson)
+    for (code, key), lessons in grouped.items():
+        first = lessons[0]
+        if code == v.REQUIREMENT_MET:
+            required = state.requirement(*key)[0]
+            message = (
+                f"{first.class_label} has {len(lessons)} {first.subject_name} lessons but the "
+                f"requirement is now {required}. Remove {len(lessons) - required}."
+            )
+        elif code == v.CAPACITY_EXCEEDED:
+            cap = state.capacity(*key)
+            message = (
+                f"{first.teacher_name} has {len(lessons)} lessons on {day_label(first.day)} but may "
+                f"now teach only {cap}. Move or remove {len(lessons) - cap}."
+            )
+        else:
+            message = (
+                f"{first.teacher_name} has {len(lessons)} lesson(s) on {day_label(first.day)} but "
+                "no capacity is set for that day."
+            )
+        conflicts.append(Conflict(code, message, [_link(lesson) for lesson in lessons]))
+
+    order = list(CONFLICT_KINDS)
+    groups = defaultdict(list)
+    for conflict in conflicts:
+        groups[conflict.code].append(conflict)
+    return [
+        ConflictGroup(code, CONFLICT_KINDS.get(code, code), groups[code])
+        for code in sorted(groups, key=lambda c: order.index(c) if c in order else len(order))
+    ]
+
+
+def conflict_count(groups=None):
+    return sum(len(g.conflicts) for g in (find_conflicts() if groups is None else groups))
+
+
+def _link(lesson):
+    return SlotLink(
+        lesson.class_id,
+        f"{lesson.class_label} {day_label(lesson.day)[:3]} {roman(lesson.period)}",
+        lesson.day,
+        lesson.period,
+    )
+

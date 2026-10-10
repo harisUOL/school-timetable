@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Subject requirements{% endblock %}
+{% block heading %}Subject requirements{% endblock %}
+{% block subheading %}<p class="muted">Every class and subject: weekly periods required against lessons placed.</p>{% endblock %}
+{% block actions %}<a class="btn{% if conflict_count %} btn-danger{% endif %}" href="{% url 'scheduling:conflicts' %}">Conflict report ({{ conflict_count }})</a>{% endblock %}
+
+{% block content %}
+<form method="get" class="card form-inline" aria-label="Filter requirements">
+  <div class="field">
+    <label for="filter-grade">Grade</label>
+    <select id="filter-grade" name="grade">
+      <option value="">All grades</option>
+      {% for grade in grades %}<option value="{{ grade.pk }}"{% if grade.pk == grade_id %} selected{% endif %}>{{ grade }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="filter-class">Class</label>
+    <select id="filter-class" name="class">
+      <option value="">All classes</option>
+      {% for cg in classes %}<option value="{{ cg.pk }}"{% if cg.pk == class_id %} selected{% endif %}>{{ cg }}</option>{% endfor %}
+    </select>
+  </div>
+  <button type="submit" class="btn">Apply</button>
+</form>
+
+{% if differs_count %}<p class="alert alert-info">{{ differs_count }} requirement{{ differs_count|pluralize }} {{ differs_count|pluralize:"is,are" }} taught by someone other than the designated teacher.</p>{% endif %}
+
+<div class="card">
+  <div class="table-scroll">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Class</th>
+          <th scope="col">Subject</th>
+          <th scope="col" class="num">Required</th>
+          <th scope="col" class="num">Assigned</th>
+          <th scope="col" class="num">Remaining</th>
+          <th scope="col">Progress</th>
+          <th scope="col">Designated</th>
+          <th scope="col">Taught by</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <th scope="row"><a href="{% url 'scheduling:class_timetable' row.requirement.class_group_id %}">{{ row.requirement.class_group }}</a></th>
+          <td>{{ row.requirement.subject.name }}</td>
+          <td class="num">{{ row.required }}</td>
+          <td class="num">{{ row.assigned }}</td>
+          <td class="num">{{ row.remaining }}</td>
+          <td class="progress-cell">
+            <div class="progress" role="progressbar" aria-label="{{ row.requirement.class_group }} {{ row.requirement.subject.name }}" aria-valuemin="0" aria-valuemax="{{ row.required }}" aria-valuenow="{{ row.assigned }}"><span class="progress-bar{% if row.is_over %} is-over{% elif row.is_met %} is-complete{% endif %}" style="width: {{ row.percent }}%"></span></div>
+            {% if row.is_over %}<span class="badge badge-error">Over by {{ row.over_by }}</span>{% endif %}
+          </td>
+          <td>{{ row.designated|default:"—" }}</td>
+          <td>{{ row.teachers|join:", "|default:"—" }}{% if row.differs %} <span class="badge badge-warning">Differs</span>{% endif %}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8" class="empty">No requirements match.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

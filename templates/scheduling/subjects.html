@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Subjects{% endblock %}
+{% block heading %}Subjects{% endblock %}
+{% block subheading %}<p class="muted">Weekly demand across all classes against the capacity of qualified active teachers (capacity is shared between all the subjects a teacher can teach).</p>{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="table-scroll">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Subject</th>
+          <th scope="col">Code</th>
+          <th scope="col">Qualified teachers</th>
+          <th scope="col" class="num">Demand / week</th>
+          <th scope="col" class="num">Placed</th>
+          <th scope="col" class="num">Teacher capacity</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <th scope="row">{{ row.subject.name }}</th>
+          <td>{{ row.subject.code|default:"—" }}</td>
+          <td>{% for t in row.teachers %}<a href="{% url 'scheduling:teacher_timetable' t.pk %}">{{ t.name }}</a>{% if not forloop.last %}, {% endif %}{% empty %}<span class="badge badge-error">None</span>{% endfor %}</td>
+          <td class="num">{{ row.demand }}</td>
+          <td class="num">{{ row.placed }}</td>
+          <td class="num">{{ row.supply }}{% if row.shortfall %} <span class="badge badge-error">Short by {{ row.shortfall }}</span>{% endif %}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="empty">No subjects yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

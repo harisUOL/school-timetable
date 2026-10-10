@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ teacher.name }}{% endblock %}
+{% block heading %}{{ teacher.name }}{% endblock %}
+{% block subheading %}<p class="muted">{{ teacher.subjects.all|join:", "|default:"No subjects" }} · {{ grid.filled }} lesson{{ grid.filled|pluralize }} this week of a maximum {{ grid.total_slots }}{% if not teacher.is_active %} · <strong>Inactive</strong>{% endif %}</p>{% endblock %}
+
+{% block content %}
+<form method="get" action="{% url 'scheduling:teachers' %}" class="card form-inline" aria-label="Choose a teacher">
+  <div class="field">
+    <label for="teacher-select">Teacher</label>
+    <select id="teacher-select" name="teacher">
+      {% for t in teachers %}<option value="{{ t.pk }}"{% if t.pk == teacher.pk %} selected{% endif %}>{{ t.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <button type="submit" class="btn">Show</button>
+</form>
+
+<section class="card grid-card" aria-label="Weekly timetable for {{ teacher.name }}">
+  <div class="grid-scroll">
+    <table class="timetable">
+      <caption class="visually-hidden">Weekly timetable for {{ teacher.name }} across all classes</caption>
+      <thead>
+        <tr>
+          <th scope="col" class="day-col">Day</th>
+          {% for column in grid.columns %}<th scope="col" class="{% if column.kind == 'recess' %}recess-col{% else %}period-col{% endif %}">{% if column.kind == 'recess' %}<span class="visually-hidden">Recess</span>{% else %}{{ column.label }}{% endif %}</th>{% endfor %}
+          <th scope="col" class="load-col">Load</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in grid.rows %}
+        <tr>
+          <th scope="row" class="day-col"><abbr title="{{ row.label }}">{{ row.short_label }}</abbr></th>
+          {% for cell in row.cells %}{% include "scheduling/includes/teacher_cell.html" %}{% endfor %}
+          <td class="num load load-{{ row.load.state }}" title="{{ row.load.state_label }}"><span class="load-value">{{ row.load.label }}</span><span class="visually-hidden">{{ row.load.state_label }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

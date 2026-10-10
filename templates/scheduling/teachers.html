@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Teachers{% endblock %}
+{% block heading %}Teachers{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="table-scroll">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Teacher</th>
+          <th scope="col">Subjects</th>
+          <th scope="col" class="num">Designated / week</th>
+          <th scope="col" class="num">Assigned / capacity</th>
+          <th scope="col">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <th scope="row"><a href="{% url 'scheduling:teacher_timetable' row.teacher.pk %}">{{ row.teacher.name }}</a></th>
+          <td>{{ row.subjects|join:", "|default:"—" }}</td>
+          <td class="num">{{ row.designated }}</td>
+          <td class="num"><span class="load-pill load-{{ row.state }}">{{ row.assigned }}/{{ row.max }}</span></td>
+          <td>
+            {% if not row.teacher.is_active %}<span class="badge">Inactive</span>{% endif %}
+            {% if row.teacher.is_cover_teacher %}<span class="badge badge-info">Cover</span>{% endif %}
+            {% if row.teacher.is_active and not row.teacher.is_cover_teacher %}<span class="muted">Active</span>{% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="empty">No teachers yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

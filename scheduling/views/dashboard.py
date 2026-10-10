@@ -13,6 +13,7 @@ class DashboardView(RolePermissionMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         issues = run_health_checks()
+        _, workloads = selectors.teacher_workloads(sort="load")
         return super().get_context_data(
             counts=[
                 ("Classes", ClassGroup.objects.count()),
@@ -21,6 +22,9 @@ class DashboardView(RolePermissionMixin, TemplateView):
                 ("Requirements", SubjectRequirement.objects.count()),
             ],
             completion=selectors.school_completion(),
+            class_completion=selectors.class_completion(),
+            busiest=[row for row in workloads if row.assigned][:5],
+            conflict_count=selectors.conflict_count(),
             top_issues=issues[:5],
             issue_count=len(issues),
             error_count=sum(i.is_error for i in issues),

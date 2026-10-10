@@ -27,10 +27,17 @@ class ClassGridTests(SchoolFixture):
     def test_recess_follows_each_days_position(self):
         SchoolDayConfiguration.objects.filter(day=Day.TUESDAY).update(recess_after_period=3)
         SchoolDayConfiguration.objects.filter(day=Day.WEDNESDAY).update(recess_after_period=0)
-        rows = selectors.class_grid(self.c10a).rows
-        self.assertEqual([c.kind for c in rows[1].cells].index("recess"), 3)
+        grid = selectors.class_grid(self.c10a)
+        rows = grid.rows
+        self.assertEqual([c["kind"] for c in grid.columns][3:6], ["recess", "period", "recess"])
+        self.assertEqual([c.kind for c in rows[1].cells][3:6], ["recess", "empty", "gap"])  # Tuesday after III
+        self.assertEqual([c.kind for c in rows[0].cells][3:6], ["gap", "empty", "recess"])  # Monday after IV
         self.assertNotIn("recess", [c.kind for c in rows[2].cells])
         self.assertEqual(len({len(r.cells) for r in rows}), 1)  # every row is the same width
+        # Period N sits in the same column on every day.
+        for index, column in enumerate(grid.columns):
+            if column["kind"] == "period":
+                self.assertEqual({r.cells[index].period for r in rows if r.cells[index].kind != "none"}, {column["period"]})
 
     def test_roman_numerals(self):
         self.assertEqual([selectors.roman(n) for n in (1, 4, 9, 12)], ["I", "IV", "IX", "XII"])

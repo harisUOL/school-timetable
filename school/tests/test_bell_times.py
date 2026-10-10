@@ -78,12 +78,12 @@ class GridTimeTests(TestCase):
         SchoolDayConfiguration.objects.filter(day=Day.SATURDAY).update(start_time=datetime.time(9, 0))
         grid = selectors.class_grid(self.class_group)
         first = next(c for c in grid.columns if c["kind"] == "period")
-        self.assertEqual(first["time"], "")  # the days disagree
+        self.assertEqual(first["time"], "08:00–08:40")  # what most days share
         saturday = next(r for r in grid.rows if r.day == Day.SATURDAY)
         self.assertEqual(saturday.cells[0].time_label, "09:00–09:40")
         self.assertTrue(saturday.cells[0].own_time)
         response_table = tables.class_table(self.class_group)
-        self.assertEqual(response_table.header[1], "I")
+        self.assertEqual(response_table.header[1], "I\n08:00–08:40")
         self.assertTrue(response_table.rows[-1][1].startswith("09:00–09:40"))
 
     def test_exports_put_times_in_the_header(self):

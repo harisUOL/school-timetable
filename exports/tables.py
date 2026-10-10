@@ -31,7 +31,7 @@ def _grid_table(title, subtitle, grid, cell_text, extra_header=None, extra_cells
     for row in grid.rows:
         cells = [row.label]
         for cell in row.cells:
-            if cell.kind == selectors.RECESS:
+            if cell.kind in (selectors.RECESS, selectors.GAP):
                 cells.append("")
             elif cell.kind == selectors.NONE:
                 cells.append("—")

@@ -84,6 +84,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "config.navigation.navigation",
             ],
         },
     },
@@ -137,7 +138,9 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-LOGIN_URL = "admin:login"
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "scheduling:dashboard"
+LOGOUT_REDIRECT_URL = "login"
 
 # --------------------------------------------------------------------------
 # Internationalisation
@@ -164,3 +167,12 @@ if not DEBUG:
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
+
+# --------------------------------------------------------------------------
+# Timetable rules and generator weights
+# --------------------------------------------------------------------------
+
+# Preferred most lessons of one subject per class per day. A soft rule: the
+# generator penalises going over it and Data Health warns when a designated
+# teacher's days make it unavoidable.
+TIMETABLE_MAX_SUBJECT_LESSONS_PER_DAY = 2

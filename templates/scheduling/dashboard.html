@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block heading %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="summary-row">
+  {% for label, value in counts %}
+  <div class="stat"><span class="stat-value">{{ value }}</span><span class="stat-label">{{ label }}</span></div>
+  {% endfor %}
+</div>
+
+<section class="card">
+  <h2>Timetable completion</h2>
+  <div class="progress progress-lg" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ completion.percent }}" aria-label="School-wide completion">
+    <span class="progress-bar" style="width: {{ completion.percent }}%"></span>
+  </div>
+  <p>{{ completion.assigned }} of {{ completion.required }} required lessons placed ({{ completion.percent }}%).</p>
+</section>
+
+<section class="card">
+  <h2>Data health</h2>
+  {% if top_issues %}
+  <ul class="issue-list">
+    {% for issue in top_issues %}
+    <li><span class="badge badge-{{ issue.severity }}">{{ issue.severity|capfirst }}</span> <span>{{ issue.message }}</span></li>
+    {% endfor %}
+  </ul>
+  <a href="{% url 'school:health' %}">See all {{ issue_count }} issue{{ issue_count|pluralize }}</a>
+  {% else %}
+  <p>No configuration problems found.</p>
+  {% endif %}
+</section>
+{% endblock %}

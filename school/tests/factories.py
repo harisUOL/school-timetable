@@ -46,3 +46,17 @@ def make_requirement(class_group, subject, periods=5, teacher=None):
     return SubjectRequirement.objects.create(
         class_group=class_group, subject=subject, periods_per_week=periods, teacher=teacher
     )
+
+
+def make_user(username="user", role=None, superuser=False):
+    """role: None, school.roles.EDITOR_GROUP or school.roles.VIEWER_GROUP."""
+    from django.contrib.auth import get_user_model
+    from django.contrib.auth.models import Group
+
+    User = get_user_model()
+    if superuser:
+        return User.objects.create_superuser(username, f"{username}@example.com", "pw")
+    user = User.objects.create_user(username, password="pw")
+    if role:
+        user.groups.add(Group.objects.get(name=role))
+    return user

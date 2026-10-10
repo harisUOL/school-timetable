@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Availability{% endblock %}
+{% block heading %}Teacher availability{% endblock %}
+{% block subheading %}<p class="muted">The most lessons each teacher may teach per day, across all classes. An empty cell means the teacher is unavailable that day.</p>{% endblock %}
+
+{% block content %}
+<form method="post" class="card" novalidate>
+  {% csrf_token %}
+  <div class="table-scroll">
+    <table class="table capacity-grid">
+      <caption class="visually-hidden">Daily capacity per teacher</caption>
+      <thead>
+        <tr>
+          <th scope="col">Teacher</th>
+          {% for day in week %}<th scope="col" class="num">{{ day.short_label }}<span class="th-sub">max {{ day.periods }}</span></th>{% endfor %}
+          <th scope="col" class="num">Week</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in grid.rows %}
+        <tr{% if row.has_errors %} class="row-error"{% endif %}>
+          <th scope="row">{{ row.teacher.name }}{% if row.teacher.is_cover_teacher %} <span class="badge">Cover</span>{% endif %}</th>
+          {% for cell in row.cells %}
+          <td class="num{% if cell.errors %} cell-invalid{% endif %}">
+            <input type="number" name="{{ cell.name }}" id="{{ cell.name }}" value="{{ cell.value }}" min="0" inputmode="numeric"
+                   class="input-num" aria-label="{{ row.teacher.name }}, {{ cell.day_label }}"
+                   {% if cell.errors %}aria-invalid="true" aria-describedby="{{ cell.name }}-err"{% endif %}
+                   {% if not can_edit %}disabled{% endif %}>
+            {% if cell.errors %}<div class="cell-error" id="{{ cell.name }}-err">{% for e in cell.errors %}{{ e }} {% endfor %}</div>{% endif %}
+          </td>
+          {% endfor %}
+          <td class="num strong">{{ row.weekly_total }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="{{ week|length|add:2 }}" class="empty">No active teachers yet.</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if grid.rows %}
+      <tfoot>
+        <tr>
+          <th scope="row">All teachers</th>
+          {% for total in grid.day_totals %}<td class="num">{{ total }}</td>{% endfor %}
+          <td></td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+  {% if can_edit %}
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Save capacities</button>
+  </div>
+  {% else %}
+  <p class="muted">You have read-only access.</p>
+  {% endif %}
+</form>
+{% endblock %}

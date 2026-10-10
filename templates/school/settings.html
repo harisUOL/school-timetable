@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block heading %}Settings{% endblock %}
+{% block subheading %}<p class="muted">{{ school.school_name }} — the school week used by every timetable.</p>{% endblock %}
+
+{% block content %}
+<section class="card">
+  <h2>School week</h2>
+  <table class="table">
+    <thead><tr><th scope="col">Day</th><th scope="col" class="num">Teaching periods</th><th scope="col">Recess</th></tr></thead>
+    <tbody>
+      {% for day in week %}
+      <tr><th scope="row">{{ day.label }}</th><td class="num">{{ day.periods }}</td><td>{% if day.has_recess %}After period {{ day.recess_after }}{% else %}None{% endif %}</td></tr>
+      {% empty %}
+      <tr><td colspan="3" class="empty">No operating days are configured.</td></tr>
+      {% endfor %}
+    </tbody>
+    <tfoot><tr><th scope="row">Week</th><td class="num strong">{{ weekly_slots }}</td><td></td></tr></tfoot>
+  </table>
+</section>
+
+{% if user.is_superuser %}
+<section class="card">
+  <h2>Change configuration</h2>
+  <ul class="link-list">
+    <li><a href="{% url 'admin:school_schoolsettings_changelist' %}">School name and default day layout</a></li>
+    <li><a href="{% url 'admin:school_schooldayconfiguration_changelist' %}">Operating days and per-day overrides</a></li>
+    <li><a href="{% url 'admin:school_classgroup_changelist' %}">Classes and their subject requirements</a></li>
+    <li><a href="{% url 'admin:school_teacher_changelist' %}">Teachers, qualifications and capacities</a></li>
+    <li><a href="{% url 'admin:school_subject_changelist' %}">Subjects</a></li>
+    <li><a href="{% url 'admin:auth_user_changelist' %}">Users and roles</a></li>
+  </ul>
+</section>
+{% else %}
+<p class="muted">Only administrators can change these settings.</p>
+{% endif %}
+{% endblock %}

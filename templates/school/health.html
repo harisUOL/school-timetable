@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Data Health{% endblock %}
+{% block heading %}Data health{% endblock %}
+{% block subheading %}<p class="muted">Configuration problems that block or weaken scheduling. Errors make a complete timetable impossible.</p>{% endblock %}
+
+{% block content %}
+<div class="summary-row">
+  <div class="stat stat-{% if error_count %}error{% else %}ok{% endif %}"><span class="stat-value">{{ error_count }}</span><span class="stat-label">Error{{ error_count|pluralize }}</span></div>
+  <div class="stat stat-{% if warning_count %}warning{% else %}ok{% endif %}"><span class="stat-value">{{ warning_count }}</span><span class="stat-label">Warning{{ warning_count|pluralize }}</span></div>
+</div>
+
+{% for group in groups %}
+<section class="card issue-group issue-{{ group.severity }}">
+  <h2><span class="badge badge-{{ group.severity }}">{{ group.severity|capfirst }}</span> {{ group.title }} <span class="muted">({{ group.issues|length }})</span></h2>
+  <ul class="issue-list">
+    {% for issue in group.issues %}
+    <li>
+      <span>{{ issue.message }}</span>
+      {% if issue.fix_url %}{% if user.is_superuser %}<a class="btn btn-small" href="{{ issue.fix_url }}">{{ issue.fix_label }}</a>{% endif %}{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% empty %}
+<div class="card empty-state"><p>No problems found. The configuration is ready for scheduling.</p></div>
+{% endfor %}
+{% endblock %}

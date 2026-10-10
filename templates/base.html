@@ -1,0 +1,58 @@
+{% load static %}<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{% endblock %} · School Timetable</title>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="layout">
+    <aside class="sidebar" aria-label="Main navigation">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">TT</span>
+        <span class="brand-name">School Timetable</span>
+      </div>
+      <nav>
+        <ul class="nav-list">
+          {% for item in sidebar_items %}
+          <li>
+            {% if item.enabled %}
+            <a class="nav-link{% if item.active %} is-active{% endif %}" href="{{ item.url }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a>
+            {% else %}
+            <span class="nav-link is-disabled" aria-disabled="true" title="Coming in a later phase">{{ item.label }}</span>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="user-box">
+          <span class="user-name">{{ user.get_username }}</span>
+          <span class="user-role">{{ role_label }}</span>
+        </div>
+        {% if user.is_superuser %}<a class="nav-link" href="{% url 'admin:index' %}">Admin</a>{% endif %}
+        <form method="post" action="{% url 'logout' %}">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-ghost btn-block">Sign out</button>
+        </form>
+      </div>
+    </aside>
+
+    <main id="main" class="main" tabindex="-1">
+      <header class="page-header">
+        <div>
+          <h1>{% block heading %}{% endblock %}</h1>
+          {% block subheading %}{% endblock %}
+        </div>
+        <div class="page-actions">{% block actions %}{% endblock %}</div>
+      </header>
+      {% include "includes/messages.html" %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

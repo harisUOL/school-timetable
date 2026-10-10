@@ -1,0 +1,23 @@
+<div class="progress-summary">
+  <strong>{{ progress.assigned }}</strong> of {{ progress.required }} required lessons placed
+  ({{ progress.remaining }} remaining)
+</div>
+{% if progress.over_capacity %}
+<div class="alert alert-warning" role="alert">This class requires {{ progress.required }} periods a week but has only {{ progress.weekly_slots }} teaching slots.</div>
+{% endif %}
+<ul class="req-list">
+  {% for subject in progress.subjects %}
+  <li class="req-item{% if subject.is_met %} is-met{% endif %}{% if subject.is_over %} is-over{% endif %}">
+    <div class="req-head">
+      <span class="req-name">{{ subject.subject }}</span>
+      <span class="req-count">{{ subject.assigned }}/{{ subject.required }}</span>
+    </div>
+    <div class="progress" role="progressbar" aria-label="{{ subject.subject }}" aria-valuemin="0" aria-valuemax="{{ subject.required }}" aria-valuenow="{{ subject.assigned }}">
+      <span class="progress-bar{% if subject.is_over %} is-over{% elif subject.is_met %} is-complete{% endif %}" style="width: {{ subject.percent }}%"></span>
+    </div>
+    {% if subject.designated %}<div class="req-teacher muted">{{ subject.designated }}</div>{% endif %}
+  </li>
+  {% empty %}
+  <li class="muted">No subject requirements for this class yet.</li>
+  {% endfor %}
+</ul>

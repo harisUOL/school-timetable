@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Reset {{ class_group }}{% endblock %}
+{% block heading %}Reset {{ class_group }}'s timetable{% endblock %}
+
+{% block content %}
+<form method="post" class="card stack">
+  {% csrf_token %}
+  {% if lesson_count %}
+  <p>This removes <strong>{{ lesson_count }} lesson{{ lesson_count|pluralize }}</strong> from {{ class_group }}. Other classes, teacher capacities and subject requirements are not changed. A snapshot is kept in the audit log.</p>
+  {% if locked_count %}
+  <label class="check"><input type="checkbox" name="keep_locked"> Keep the {{ locked_count }} locked lesson{{ locked_count|pluralize }}</label>
+  {% endif %}
+  {% else %}
+  <p>{{ class_group }} has no lessons to remove.</p>
+  {% endif %}
+  <div class="form-actions">
+    <a class="btn" href="{% url 'scheduling:class_timetable' class_group.pk %}">Cancel</a>
+    {% if lesson_count %}<button type="submit" class="btn btn-danger">Remove lessons</button>{% endif %}
+  </div>
+</form>
+{% endblock %}

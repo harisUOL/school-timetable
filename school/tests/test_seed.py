@@ -111,3 +111,21 @@ class SeedDemoTests(TestCase):
         viewer = get_user_model().objects.get(username="demo_viewer")
         self.assertTrue(editor.has_perm("scheduling.change_timetableentry"))
         self.assertFalse(viewer.has_perm("scheduling.change_timetableentry"))
+
+    def test_remove_clears_demo_lessons_through_the_service(self):
+        from scheduling import services
+        from scheduling.models import TimetableAuditLog, TimetableEntry
+
+        seed()
+        requirement = SubjectRequirement.objects.filter(teacher__isnull=False).first()
+        services.assign_lesson(
+            class_group=requirement.class_group,
+            day=Day.MONDAY,
+            period=1,
+            subject=requirement.subject,
+            teacher=requirement.teacher,
+            user=None,
+        )
+        seed("--remove")
+        self.assertFalse(TimetableEntry.objects.exists())
+        self.assertTrue(TimetableAuditLog.objects.filter(action="reset").exists())

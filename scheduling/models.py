@@ -117,3 +117,42 @@ class TimetableEntry(models.Model):
             raise ValidationError(
                 {"period": f"{schedule.label} has teaching periods 1–{schedule.periods} only."}
             )
+
+
+class TimetableAuditLog(models.Model):
+    """
+    One row per change made through `scheduling.services`. `before`/`after`
+    hold entry snapshots (a list of snapshots for a class reset). Never edited.
+    """
+
+    class Action(models.TextChoices):
+        ASSIGN = "assign", "Assign"
+        REPLACE = "replace", "Replace"
+        CLEAR = "clear", "Clear"
+        RESET = "reset", "Reset class"
+        LOCK = "lock", "Lock"
+        UNLOCK = "unlock", "Unlock"
+        GENERATOR_APPLY = "generator_apply", "Apply generated timetable"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    action = models.CharField(max_length=20, choices=Action.choices)
+    class_group = models.ForeignKey(
+        ClassGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    class_label = models.CharField(max_length=50, blank=True)
+    day = models.PositiveSmallIntegerField(choices=Day.choices, null=True, blank=True)
+    period = models.PositiveSmallIntegerField(null=True, blank=True)
+    before = models.JSONField(null=True, blank=True)
+    after = models.JSONField(null=True, blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-timestamp", "-id"]
+        verbose_name = "timetable audit log entry"
+        verbose_name_plural = "timetable audit log"
+
+    def __str__(self):
+        where = f" {self.get_day_display()} P{self.period}" if self.day is not None else ""
+        return f"{self.timestamp:%Y-%m-%d %H:%M} {self.get_action_display()} {self.class_label}{where}"

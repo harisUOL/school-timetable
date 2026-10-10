@@ -187,7 +187,7 @@ class Command(BaseCommand):
     # ------------------------------------------------------------------
 
     def remove_demo_data(self):
-        from scheduling.models import TimetableEntry
+        from scheduling.services import reset_class
 
         class_ids = []
         for grade_name, section_name in demo.CLASSES:
@@ -196,8 +196,8 @@ class Command(BaseCommand):
             ).first()
             if class_group:
                 class_ids.append(class_group.pk)
-        if TimetableEntry.objects.filter(class_group_id__in=class_ids).exists():
-            raise CommandError("The demo classes have lessons. Reset their timetables first.")
+                # Timetable entries are only ever removed through the service layer.
+                reset_class(class_group=class_group, user=None)
 
         teacher_names = [name for name, *_ in demo.TEACHERS]
         teachers = Teacher.objects.filter(name__in=teacher_names)
@@ -208,7 +208,7 @@ class Command(BaseCommand):
 
         SubjectRequirement.objects.filter(class_group_id__in=class_ids).delete()
         ClassGroup.objects.filter(pk__in=class_ids).delete()
-        teacher_count, _ = teachers.delete()
+        teachers.delete()
 
         kept = []
         for name, code in demo.SUBJECTS:

@@ -60,3 +60,52 @@ python manage.py seed_demo --with-users
 python manage.py createsuperuser
 python manage.py runserver   # sign in at /accounts/login/
 ```
+
+## Phase 3: Manual timetable builder
+
+**Built**
+- `scheduling/validators.py`:
+  - `validate_assignment(...)` returns `Violation(code, message, context)`.
+  - `assignment_warnings(...)` returns the non-blocking `DESIGNATED_TEACHER_MISMATCH`.
+  - The rules run over a state interface. `DatabaseState` uses targeted queries;
+    `MemoryState` holds a snapshot or a hypothetical timetable for the modal and the
+    generator. The rule code is the same either way.
+- `scheduling/services.py` provides `assign_lesson`, `clear_lesson`, `reset_class`,
+  `set_locked` and `SchedulingError`. Every call:
+  - is atomic;
+  - locks teacher rows in id order;
+  - checks optimistic concurrency (`expected` = id + `updated_at`, giving `STALE_SLOT`);
+  - maps `IntegrityError` to a friendly clash;
+  - writes an audit row.
+- `TimetableAuditLog` model, read-only in the admin.
+- `scheduling/selectors.py` provides `class_grid`, `class_cell`, `requirement_progress`,
+  `teacher_day_load` and `slot_options`.
+- Pages and endpoints:
+  - Pages: `/timetable/` (grade → class pills) and `/timetable/<id>/` (header stats,
+    grid, requirements panel).
+  - Reset confirmation: `/timetable/<id>/reset/` (option to keep locked lessons).
+  - JSON API: `/api/slot-options/` and `/api/lessons/{assign,clear,lock}/`.
+- `static/js/timetable.js`:
+  - one delegated click listener and a native `<dialog>`;
+  - focus trap and Escape to close;
+  - the designated teacher is pre-selected, and choosing someone else shows a warning;
+  - server errors appear inside the modal, with "Reload this slot" when the slot is stale.
+- `seed_demo --remove` now clears demo lessons through `reset_class` and no longer refuses.
+
+**Decisions**
+- Extra codes:
+  - `SLOT_OCCUPIED`: assigning to a filled slot without `expected`. This is the
+    "duplicate slot without replace" case.
+  - `SLOT_EMPTY`: clearing or locking an empty slot.
+  - Neither weakens a listed rule.
+- Replacing a locked lesson keeps its lock, and reset can drop or keep locked lessons.
+  Locks only bind the generator, as the model's help text says.
+- When day layouts differ:
+  - The header follows the longest day that has a recess.
+  - A day with a different recess position still shows recess at its own position.
+  - Each cell carries its own Roman numeral, so a row never misleads.
+- Write endpoints return 403 as JSON (`PERMISSION_DENIED`) for signed-in users without
+  the permission. Anonymous users are redirected to login, like every page.
+- Viewers see a read-only grid: no buttons, no JS module, no reset.
+
+**Try it**: open *Class Timetables*, pick a grade and a class, and click any slot.

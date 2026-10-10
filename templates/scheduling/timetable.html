@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{% if class_group %}{{ class_group }} timetable{% else %}Class timetables{% endif %}{% endblock %}
+{% block heading %}{% if class_group %}Class {{ class_group }}{% else %}Class timetables{% endif %}{% endblock %}
+{% block subheading %}{% if class_group %}<p class="muted"><span data-stat="filled">{{ grid.filled }}</span> of {{ grid.total_slots }} slots filled · <span data-stat="assigned">{{ progress.assigned }}</span>/{{ progress.required }} required lessons</p>{% endif %}{% endblock %}
+{% block actions %}
+{% if class_group %}
+  {% if can_edit %}<a class="btn btn-danger" href="{% url 'scheduling:reset_class' class_group.pk %}">Reset timetable</a>{% endif %}
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<nav class="card selector" aria-label="Choose a class">
+  <div class="selector-row">
+    <span class="selector-label" id="grade-label">Grade</span>
+    <ul class="pill-list" aria-labelledby="grade-label">
+      {% for grade in grades %}
+      <li><a class="pill{% if grade == current_grade %} is-active{% endif %}" href="{% url 'scheduling:timetable' %}?grade={{ grade.pk }}"{% if grade == current_grade %} aria-current="true"{% endif %}>{{ grade }}</a></li>
+      {% empty %}<li class="muted">No grades yet.</li>{% endfor %}
+    </ul>
+  </div>
+  {% if current_grade %}
+  <div class="selector-row">
+    <span class="selector-label" id="class-label">Class</span>
+    <ul class="pill-list" aria-labelledby="class-label">
+      {% for cg in grade_classes %}
+      <li><a class="pill{% if cg == current_class %} is-active{% endif %}" href="{% url 'scheduling:class_timetable' cg.pk %}"{% if cg == current_class %} aria-current="page"{% endif %}>{{ cg }}</a></li>
+      {% empty %}<li class="muted">No classes in this grade.</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</nav>
+
+{% if class_group %}
+<div class="builder">
+  <section class="card grid-card" aria-label="Timetable for {{ class_group }}">
+    <div class="grid-scroll">
+      <table class="timetable" id="timetable-grid"
+             data-class-id="{{ class_group.pk }}"
+             data-options-url="{% url 'scheduling:slot_options' %}"
+             data-assign-url="{% url 'scheduling:assign_lesson' %}"
+             data-clear-url="{% url 'scheduling:clear_lesson' %}"
+             data-lock-url="{% url 'scheduling:lock_lesson' %}">
+        <caption class="visually-hidden">Weekly timetable for {{ class_group }}. {% if can_edit %}Choose a slot to add or change a lesson.{% endif %}</caption>
+        <thead>
+          <tr>
+            <th scope="col" class="day-col">Day</th>
+            {% for column in grid.columns %}<th scope="col" class="{% if column.kind == 'recess' %}recess-col{% else %}period-col{% endif %}">{% if column.kind == 'recess' %}<span class="visually-hidden">Recess</span>{% else %}{{ column.label }}{% endif %}</th>{% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in grid.rows %}
+          <tr>
+            <th scope="row" class="day-col"><abbr title="{{ row.label }}">{{ row.short_label }}</abbr></th>
+            {% for cell in row.cells %}{% include "scheduling/includes/cell.html" %}{% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <aside class="card progress-card" aria-labelledby="progress-title">
+    <h2 id="progress-title">Requirements</h2>
+    <div id="progress-panel">{% include "scheduling/includes/progress.html" %}</div>
+  </aside>
+</div>
+
+{% if can_edit %}
+{% csrf_token %}
+<dialog id="slot-dialog" class="modal" aria-labelledby="slot-dialog-title">
+  <form method="dialog" class="modal-inner" novalidate>
+    <header class="modal-header">
+      <h2 id="slot-dialog-title">Lesson</h2>
+      <button type="button" class="btn btn-ghost btn-small" data-action="cancel" aria-label="Close">✕</button>
+    </header>
+    <div class="modal-body" data-region="body"><p class="muted">Loading…</p></div>
+    <div class="modal-errors" data-region="errors" role="alert"></div>
+    <footer class="modal-footer" data-region="footer"></footer>
+  </form>
+</dialog>
+<div id="live-status" class="live-status" role="status" aria-live="polite"></div>
+{% endif %}
+{% elif not grades %}
+<div class="card empty-state"><p>No classes are configured yet.</p></div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}{% if class_group and can_edit %}<script type="module" src="{% static 'js/timetable.js' %}"></script>{% endif %}{% endblock %}

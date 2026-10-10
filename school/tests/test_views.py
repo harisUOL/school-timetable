@@ -48,6 +48,9 @@ class PageAccessTests(TestCase):
             for name in PAGES:
                 with self.subTest(user=user.username, page=name):
                     response = self.client.get(reverse(name))
+                    if name == "school:settings" and not user.is_superuser:
+                        self.assertEqual(response.status_code, 403)  # administrators only
+                        continue
                     self.assertEqual(response.status_code, 200)
                     self.assertContains(response, "Sign out")
 
@@ -72,7 +75,7 @@ class PageAccessTests(TestCase):
         response = self.client.get(reverse("scheduling:dashboard"))
         self.assertContains(response, 'aria-current="page"')
         self.assertNotContains(response, 'aria-disabled="true"')  # every page exists now
-        with mock.patch.object(navigation, "SIDEBAR", [*navigation.SIDEBAR, ("Future", "nope:missing")]):
+        with mock.patch.object(navigation, "SIDEBAR", [*navigation.SIDEBAR, ("Future", "nope:missing", navigation.READ)]):
             response = self.client.get(reverse("scheduling:dashboard"))
         self.assertContains(response, 'aria-disabled="true"')
 

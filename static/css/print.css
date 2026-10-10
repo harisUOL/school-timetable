@@ -1,0 +1,32 @@
+/* Print pages: one timetable per sheet, landscape, no app chrome. */
+
+.print-body { background: var(--bg); padding: 1rem; }
+.print-toolbar { display: flex; gap: .75rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+.print-page { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; margin-bottom: 1rem; overflow-x: auto; }
+.print-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: .5rem; }
+.print-header h1 { margin: 0; }
+.print-meta { text-align: right; margin: 0; font-size: .85rem; }
+.print-grid { min-width: 0; }
+.print-grid .day-col { width: 6.5rem; }
+.print-grid td { height: 3.6rem; }
+.print-grid .slot { min-height: 3.6rem; }
+
+@page { size: A4 landscape; margin: 10mm; }
+
+@media print {
+  :root, :root[data-theme="dark"] {
+    --bg: #fff; --surface: #fff; --surface-2: #f2f2f2; --border: #999; --text: #000; --text-muted: #333;
+    --info-bg: #fff; --lesson-border: #666;
+  }
+  html, body { background: #fff !important; color: #000; }
+  .print-body { padding: 0; }
+  .print-toolbar, .skip-link { display: none !important; }
+  .print-page { border: 0; padding: 0; margin: 0; break-after: page; page-break-after: always; overflow: visible; }
+  .print-page:last-of-type { break-after: auto; page-break-after: auto; }
+  .print-grid { width: 100%; border-spacing: 2px; table-layout: fixed; }
+  .print-grid .slot { border: 1px solid #666; background: #fff !important; box-shadow: none !important; }
+  .print-grid .slot-empty { border-style: dotted; }
+  .slot-add, .slot-lock { display: none; }
+  .recess-cell { background: #eee !important; }
+  a { color: #000; text-decoration: none; }
+}

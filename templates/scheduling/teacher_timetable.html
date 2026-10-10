@@ -3,6 +3,11 @@
 {% block heading %}{{ teacher.name }}{% endblock %}
 {% block subheading %}<p class="muted">{{ teacher.subjects.all|join:", "|default:"No subjects" }} · {{ grid.filled }} lesson{{ grid.filled|pluralize }} this week of a maximum {{ grid.total_slots }}{% if not teacher.is_active %} · <strong>Inactive</strong>{% endif %}</p>{% endblock %}
 
+{% block actions %}
+<a class="btn" href="{% url 'exports:print_teacher' teacher.pk %}">Print</a>
+<a class="btn" href="{% url 'exports:pdf_teacher' teacher.pk %}">PDF</a>
+{% endblock %}
+
 {% block content %}
 <form method="get" action="{% url 'scheduling:teachers' %}" class="card form-inline" aria-label="Choose a teacher">
   <div class="field">

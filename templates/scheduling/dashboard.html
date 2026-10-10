@@ -2,6 +2,12 @@
 {% block title %}Dashboard{% endblock %}
 {% block heading %}Dashboard{% endblock %}
 
+{% block actions %}
+<a class="btn" href="{% url 'exports:print_classes' %}">Print all classes</a>
+<a class="btn" href="{% url 'exports:pdf_school' %}">Whole-school PDF</a>
+<a class="btn" href="{% url 'exports:excel' %}">Excel workbook</a>
+{% endblock %}
+
 {% block content %}
 <div class="summary-row">
   {% for label, value in counts %}

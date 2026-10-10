@@ -41,11 +41,18 @@ def env_list(name: str, default: str = "") -> list[str]:
 DEBUG = env_bool("DEBUG", default=False)
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "")
+# True when no SECRET_KEY was configured and a throwaway one is in use.
+# Management commands (migrate, test, seed_demo…) still work on a fresh clone,
+# but config/wsgi.py and config/asgi.py refuse to serve requests with it.
+SECRET_KEY_IS_EPHEMERAL = False
 if not SECRET_KEY:
     if DEBUG:
         SECRET_KEY = "dev-only-insecure-key-change-me"
     else:
-        raise RuntimeError("SECRET_KEY must be set when DEBUG is off.")
+        from django.core.management.utils import get_random_secret_key
+
+        SECRET_KEY = get_random_secret_key()
+        SECRET_KEY_IS_EPHEMERAL = True
 
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", "localhost,127.0.0.1")
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
@@ -61,6 +68,7 @@ INSTALLED_APPS = [
     "school.apps.SchoolConfig",
     "scheduling.apps.SchedulingConfig",
     "generator.apps.GeneratorConfig",
+    "exports.apps.ExportsConfig",
 ]
 
 MIDDLEWARE = [

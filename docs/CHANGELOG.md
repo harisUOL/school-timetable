@@ -260,3 +260,48 @@ Applying 486 lessons through the service takes about 5 s on SQLite.
 
 **Try it**: `python manage.py seed_demo && python manage.py generate_timetable`, or open
 *Generator*, run, review, apply.
+
+## Phase 7: Export and administration
+
+**Built**
+- `exports/` app. Every export uses the same selectors as the screens (`exports/tables.py`).
+  - Print views:
+    - one class (`/exports/print/class/<id>/`);
+    - one teacher (`/exports/print/teacher/<id>/`);
+    - *Print all classes* (`/exports/print/classes/`).
+    - `static/css/print.css` gives A4 landscape, one timetable per page, and no app
+      chrome. The toolbar's Print button is handled by `static/js/print.js`.
+  - Excel (`/exports/excel/`, openpyxl): one sheet per class, a *Teachers* sheet (every
+    teacher's week), and a *Workload* sheet (assigned/max per day, week, max, remaining).
+  - PDF (reportlab, A4 landscape):
+    - per class (`/exports/pdf/class/<id>/`);
+    - per teacher (`/exports/pdf/teacher/<id>/`);
+    - whole school (`/exports/pdf/school/`): every class, every teacher, then the
+      workload table.
+  - Export buttons: on the class and teacher pages (Print, PDF) and on the dashboard
+    (Print all classes, Whole-school PDF, Excel workbook).
+- Roles enforced across every view:
+  - `config/tests/test_roles.py` checks anonymous, no-role, Viewer, Editor and
+    Administrator against every project URL.
+  - It fails if a new URL is added without being listed.
+  - The sidebar hides pages the user cannot open.
+- README rewritten: setup, commands, features, roles, how the generator works, and every
+  generator setting.
+
+**Decisions**
+- The Settings page is now **administrators only**, matching "Superuser: admin and
+  settings". It used to be read-only for every role.
+- Viewers and Editors can export. Every export requires login and
+  `scheduling.view_timetableentry`.
+- Fresh clone without `.env`:
+  - Previously the settings refused to load without `SECRET_KEY` (DEBUG off), so the
+    required `pip install -r requirements.txt && python manage.py migrate && python
+    manage.py test` failed on a fresh clone.
+  - Management commands now fall back to a random throwaway key.
+  - `config/wsgi.py` and `config/asgi.py` (and therefore `runserver`) still refuse to
+    serve requests until `SECRET_KEY` is set or `DEBUG=True`, so production remains
+    fail-closed.
+- `requirements.txt` adds `openpyxl` and `reportlab`, both specified for Phase 7 in
+  CLAUDE.md.
+
+**Try it**: on the dashboard, use *Print all classes*, *Whole-school PDF* or *Excel workbook*.

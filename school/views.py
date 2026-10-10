@@ -52,8 +52,13 @@ class HealthView(RolePermissionMixin, TemplateView):
 
 
 class SettingsView(RolePermissionMixin, TemplateView):
+    """The school week and links into the admin. Administrators (superusers) only."""
+
     template_name = "school/settings.html"
     permission_required = "school.view_schoolsettings"
+
+    def has_permission(self):
+        return self.request.user.is_superuser
 
     def get_context_data(self, **kwargs):
         return super().get_context_data(

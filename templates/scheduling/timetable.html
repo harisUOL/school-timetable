@@ -5,6 +5,8 @@
 {% block subheading %}{% if class_group %}<p class="muted"><span data-stat="filled">{{ grid.filled }}</span> of {{ grid.total_slots }} slots filled · <span data-stat="assigned">{{ progress.assigned }}</span>/{{ progress.required }} required lessons</p>{% endif %}{% endblock %}
 {% block actions %}
 {% if class_group %}
+  <a class="btn" href="{% url 'exports:print_class' class_group.pk %}">Print</a>
+  <a class="btn" href="{% url 'exports:pdf_class' class_group.pk %}">PDF</a>
   {% if can_edit %}<a class="btn btn-danger" href="{% url 'scheduling:reset_class' class_group.pk %}">Reset timetable</a>{% endif %}
 {% endif %}
 {% endblock %}

@@ -1,5 +1,8 @@
 Django>=5.2,<5.3
 # Phase 6: automatic timetable generation (Google OR-Tools CP-SAT)
 ortools>=9.10,<10
+# Phase 7: Excel and PDF exports
+openpyxl>=3.1,<4
+reportlab>=4.0,<6
 # PostgreSQL (optional, when POSTGRES_DB is set):
 # psycopg[binary]>=3.2

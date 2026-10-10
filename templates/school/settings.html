@@ -19,7 +19,6 @@
   </table>
 </section>
 
-{% if user.is_superuser %}
 <section class="card">
   <h2>Change configuration</h2>
   <ul class="link-list">
@@ -31,7 +30,4 @@
     <li><a href="{% url 'admin:auth_user_changelist' %}">Users and roles</a></li>
   </ul>
 </section>
-{% else %}
-<p class="muted">Only administrators can change these settings.</p>
-{% endif %}
 {% endblock %}

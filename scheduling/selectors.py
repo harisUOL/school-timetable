@@ -84,7 +84,7 @@ class Grid:
     total_slots: int
 
 
-def _row_cells(schedule, width, recess_after, entries_by_period):
+def row_cells(schedule, width, recess_after, entries_by_period):
     """
     One row of the grid: periods 1..width, with recess inserted after this
     day's recess position. Periods past the day's end are "no lesson" cells.
@@ -106,7 +106,7 @@ def _row_cells(schedule, width, recess_after, entries_by_period):
     return cells
 
 
-def _header(week):
+def grid_header(week):
     width = max((s.periods for s in week), default=0)
     # The recess column follows the first longest day that has a recess.
     with_recess = sorted((s for s in week if s.has_recess), key=lambda s: -s.periods)
@@ -121,12 +121,12 @@ def _header(week):
 
 def class_grid(class_group):
     week = get_week_schedule()
-    width, recess_after, columns = _header(week)
+    width, recess_after, columns = grid_header(week)
     entries = defaultdict(dict)
     for entry in TimetableEntry.objects.with_related().filter(class_group=class_group):
         entries[entry.day][entry.period] = entry
     rows = [
-        Row(s.day, s.label, s.short_label, _row_cells(s, width, recess_after, entries[s.day]))
+        Row(s.day, s.label, s.short_label, row_cells(s, width, recess_after, entries[s.day]))
         for s in week
     ]
     filled = sum(1 for row in rows for cell in row.cells if cell.kind == LESSON)
@@ -524,7 +524,7 @@ class TeacherRow:
 
 def teacher_grid(teacher):
     week = get_week_schedule()
-    width, recess_after, columns = _header(week)
+    width, recess_after, columns = grid_header(week)
     entries = defaultdict(dict)
     for entry in TimetableEntry.objects.with_related().filter(teacher=teacher):
         entries[entry.day][entry.period] = entry
@@ -534,7 +534,7 @@ def teacher_grid(teacher):
             s.day,
             s.label,
             s.short_label,
-            _row_cells(s, width, recess_after, entries[s.day]),
+            row_cells(s, width, recess_after, entries[s.day]),
             LoadCell(s.day, s.short_label, len(entries[s.day]), caps.get(s.day)),
         )
         for s in week

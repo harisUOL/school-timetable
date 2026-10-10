@@ -181,3 +181,82 @@ open *Subject Requirements → Conflict report*.
 - Fixed an overflow bug: visually-hidden captions inside scrolling tables widened the
   page on phones. Scroll containers are now the captions' positioning context.
 - No server-side rules changed.
+
+## Phase 6: Automated timetable generation (OR-Tools CP-SAT)
+
+**Built**
+- `generator/` app with `GenerationRun` (parameters, status, solver status, objective,
+  duration, reasons, metrics, user) and `ProposedLesson` (the complete candidate
+  timetable, with kept lessons marked). Both are read-only in the admin.
+- `generator/model.py` reads configuration through `day_schedule` and the models:
+  - Variables:
+    - `x[r,t,d,p]` exists only for valid slots where the class and teacher are free and
+      the teacher has capacity left that day.
+    - A designated teacher is the only candidate.
+    - For other requirements, `y[r,t]` with `Σy = 1` picks one teacher for the whole
+      week (`x ⇒ y`).
+  - Hard constraints: exactly the periods still needed per requirement (or at most, in
+    best-effort mode), one lesson per class slot, one lesson per teacher slot,
+    capacity per teacher-day, and kept lessons fixed.
+  - Soft constraints (weights in `settings.GENERATOR["WEIGHTS"]`):
+    - the per-subject daily limit;
+    - spreading each subject across the week;
+    - no more than 3 consecutive lessons for a teacher (recess breaks a run);
+    - no gaps in a teacher's day;
+    - balanced utilisation among teachers who share a subject.
+- `generator/diagnose.py`:
+  - Six counting checks, each a necessary condition, so any reason it gives is definite:
+    - nobody can teach a requirement;
+    - a class needs more lessons than it has free slots;
+    - a class needs more lessons than its teachers can cover on the days they work;
+    - a designated teacher's load exceeds their capacity;
+    - a designated teacher and their class share too few slots;
+    - a subject's demand exceeds the capacity of the teachers who can take it.
+  - Fallback: a best-effort solve that names the requirements left short.
+- `generator/services.py`:
+  - `run_generation()`:
+    - refuses on data-health errors and on kept lessons that break the current rules;
+    - in complete mode, runs the counting checks before solving;
+    - solves, explains any failure, and stores the proposal with quality metrics.
+  - `apply_run()`:
+    - re-validates EVERY proposed lesson with `scheduling.validators` against the current
+      configuration, treating the whole proposal as if it were live;
+    - checks the live timetable has not changed since the run;
+    - then, in one transaction, clears unlocked lessons (keep-locked mode), calls
+      `scheduling.services.assign_lesson` for each new lesson, and writes a
+      `generator_apply` audit row.
+    - On any failure nothing changes.
+- `manage.py generate_timetable [--keep all|locked] [--best-effort] [--time-limit N] [--seed N] [--no-apply]`.
+- Generator page (`/generator/`):
+  - parameters, health summary, recent runs;
+  - synchronous run with a progress message, and the submit button disabled meanwhile.
+- Run review (`/generator/runs/<id>/`):
+  - outcome and reasons;
+  - diff counts against the live timetable (new, changed, removed, kept, unchanged);
+  - quality metrics for the proposal against the current timetable;
+  - the proposal grid per class or per teacher with diff colours;
+  - *Apply* for editors.
+- `requirements.txt` now lists `ortools`.
+
+**Decisions**
+- `generate_timetable` keeps all existing lessons by default and applies the result
+  when one is found. This satisfies "`seed_demo` then `generate_timetable` produces a
+  complete timetable" without ever deleting manual work unless `--keep locked` is given.
+  The Generator page defaults to the same non-destructive mode.
+- Best-effort mode also refuses on data-health errors, as the spec requires a refusal
+  before solving.
+- For an undesignated requirement that already has kept lessons, the kept teacher is the
+  only candidate, preserving "one teacher per class and subject for the week".
+- Soft-quality verdicts on the review page are shown only when the current timetable is
+  at least 90 % as complete as the proposal. Otherwise they are not comparable.
+- Run permissions: running needs `generator.add_generationrun`; applying needs
+  `generator.change_generationrun` and `scheduling.change_timetableentry`. The
+  Timetable Editor group receives these automatically (post-migrate sync).
+
+**Measured**: on the demo school (10 classes, 116 requirements, 486 lessons), the
+hard-constraint model solves optimally in about 0.4 s. With soft constraints it returns
+a complete timetable within the time limit (FEASIBLE; quality improves with time).
+Applying 486 lessons through the service takes about 5 s on SQLite.
+
+**Try it**: `python manage.py seed_demo && python manage.py generate_timetable`, or open
+*Generator*, run, review, apply.

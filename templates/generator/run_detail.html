@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Run #{{ run.pk }}{% endblock %}
+{% block heading %}Generator run #{{ run.pk }}{% endblock %}
+{% block subheading %}<p class="muted">{{ run.created_at|date:"j M Y, H:i" }}{% if run.user %} by {{ run.user.get_username }}{% endif %} · {{ run.get_keep_mode_display }} · {{ run.mode_label }}</p>{% endblock %}
+{% block actions %}
+<a class="btn" href="{% url 'generator:index' %}">Back to generator</a>
+{% if can_apply %}
+<form method="post" action="{% url 'generator:apply_run' run.pk %}">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-primary">Apply this timetable</button>
+</form>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<section class="card">
+  <h2><span class="badge badge-{% if run.status == 'succeeded' or run.status == 'applied' %}ok{% else %}error{% endif %}">{{ run.get_status_display }}</span> {{ run.message }}</h2>
+  <dl class="facts">
+    <div><dt>Solver status</dt><dd>{{ run.solver_status|default:"—" }}</dd></div>
+    <div><dt>Time</dt><dd>{% if run.duration is not None %}{{ run.duration }} s of {{ run.time_limit }} s{% else %}—{% endif %}</dd></div>
+    <div><dt>Objective</dt><dd>{{ run.objective_value|default_if_none:"—" }}</dd></div>
+    <div><dt>Seed</dt><dd>{{ run.random_seed }}</dd></div>
+    {% if run.applied_at %}<div><dt>Applied</dt><dd>{{ run.applied_at|date:"j M Y, H:i" }}{% if run.applied_by %} by {{ run.applied_by.get_username }}{% endif %}</dd></div>{% endif %}
+  </dl>
+  {% if run.reasons %}
+  <h3>{% if run.status == 'succeeded' or run.status == 'applied' %}Not placed{% else %}Reasons{% endif %}</h3>
+  <ul class="issue-list">{% for reason in run.reasons %}<li><span>{{ reason }}</span></li>{% endfor %}</ul>
+  {% endif %}
+  {% if run.can_apply and not can_apply %}<p class="muted">Only timetable editors can apply a proposal.</p>{% endif %}
+</section>
+
+{% if diff %}
+<div class="dash-grid">
+  <section class="card">
+    <h2>Changes against the current timetable</h2>
+    <div class="summary-row compact">
+      <div class="stat"><span class="stat-value">{{ diff.new }}</span><span class="stat-label">New</span></div>
+      <div class="stat"><span class="stat-value">{{ diff.changed }}</span><span class="stat-label">Changed</span></div>
+      <div class="stat"><span class="stat-value">{{ diff.removed }}</span><span class="stat-label">Removed</span></div>
+      <div class="stat"><span class="stat-value">{{ diff.kept }}</span><span class="stat-label">Kept</span></div>
+      <div class="stat"><span class="stat-value">{{ diff.unchanged }}</span><span class="stat-label">Unchanged</span></div>
+    </div>
+  </section>
+  <section class="card">
+    <h2>Quality</h2>
+    {% if not comparable %}<p class="muted small">The current timetable is much less complete, so only the lesson counts are compared.</p>{% endif %}
+    <table class="table">
+      <thead><tr><th scope="col">Measure</th><th scope="col" class="num">Proposal</th><th scope="col" class="num">Current</th></tr></thead>
+      <tbody>
+        {% for row in metrics %}
+        <tr><th scope="row">{{ row.label }}</th><td class="num"><span class="verdict verdict-{{ row.verdict }}">{{ row.proposal }}</span></td><td class="num">{{ row.current }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<section class="card">
+  <div class="review-head">
+    <h2>Proposal</h2>
+    <form method="get" class="form-inline" aria-label="Choose what to review">
+      <div class="field">
+        <label for="review-view">View</label>
+        <select id="review-view" name="view">
+          <option value="class"{% if view == "class" %} selected{% endif %}>By class</option>
+          <option value="teacher"{% if view == "teacher" %} selected{% endif %}>By teacher</option>
+        </select>
+      </div>
+      {% if view == "teacher" %}
+      <div class="field">
+        <label for="review-teacher">Teacher</label>
+        <select id="review-teacher" name="teacher">{% for t in teachers %}<option value="{{ t.pk }}"{% if t == selected_teacher %} selected{% endif %}>{{ t.name }}</option>{% endfor %}</select>
+      </div>
+      {% else %}
+      <div class="field">
+        <label for="review-class">Class</label>
+        <select id="review-class" name="class">{% for c in classes %}<option value="{{ c.pk }}"{% if c == selected_class %} selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+      </div>
+      {% endif %}
+      <button type="submit" class="btn">Show</button>
+    </form>
+  </div>
+  <ul class="legend" aria-label="Legend">
+    {% for key, label in legend %}<li><span class="load-swatch diff-{{ key }}" aria-hidden="true"></span>{{ label }}</li>{% endfor %}
+  </ul>
+  {% if grid %}
+  <div class="grid-scroll">
+    <table class="timetable">
+      <caption class="visually-hidden">Proposed timetable for {% if view == "teacher" %}{{ selected_teacher }}{% else %}{{ selected_class }}{% endif %}</caption>
+      <thead>
+        <tr>
+          <th scope="col" class="day-col">Day</th>
+          {% for column in grid.columns %}<th scope="col" class="{% if column.kind == 'recess' %}recess-col{% else %}period-col{% endif %}">{% if column.kind == 'recess' %}<span class="visually-hidden">Recess</span>{% else %}{{ column.label }}{% endif %}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in grid.rows %}
+        <tr>
+          <th scope="row" class="day-col"><abbr title="{{ row.label }}">{{ row.short_label }}</abbr></th>
+          {% for cell in row.cells %}{% include "generator/includes/proposal_cell.html" %}{% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

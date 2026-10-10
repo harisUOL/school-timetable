@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     # Project apps
     "school.apps.SchoolConfig",
     "scheduling.apps.SchedulingConfig",
+    "generator.apps.GeneratorConfig",
 ]
 
 MIDDLEWARE = [
@@ -176,3 +177,29 @@ if not DEBUG:
 # generator penalises going over it and Data Health warns when a designated
 # teacher's days make it unavoidable.
 TIMETABLE_MAX_SUBJECT_LESSONS_PER_DAY = 2
+
+# Automatic generator (generator/model.py). Weights are relative: a higher
+# weight makes the solver work harder to avoid that pattern. Hard rules
+# (clashes, capacities, requirements) are never traded against these.
+GENERATOR = {
+    "DEFAULT_TIME_LIMIT": int(os.environ.get("GENERATOR_TIME_LIMIT", 60)),  # seconds
+    "MAX_TIME_LIMIT": 600,
+    "WORKERS": int(os.environ.get("GENERATOR_WORKERS", 8)),
+    "WEIGHTS": {
+        # Best-effort mode: each requirement lesson left unplaced.
+        "unplaced_lesson": 1000,
+        # Each lesson of a subject beyond TIMETABLE_MAX_SUBJECT_LESSONS_PER_DAY in one class-day.
+        "subject_daily_excess": 40,
+        # Reward for each distinct day a class has a subject (spreads it across the week).
+        "subject_spread_day": 6,
+        # Each run of more than 3 consecutive lessons for a teacher (recess breaks a run).
+        "teacher_consecutive": 8,
+        # Each free period between a teacher's first and last lesson of a day.
+        "teacher_gap": 3,
+        # Spread (max − min, in per-mille of weekly capacity) of utilisation among
+        # teachers who share a subject.
+        "teacher_balance": 1,
+    },
+    # Maximum consecutive lessons before the consecutive penalty applies.
+    "MAX_CONSECUTIVE": 3,
+}

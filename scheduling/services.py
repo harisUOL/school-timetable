@@ -253,3 +253,13 @@ def set_locked(*, entry, locked, user, expected=None):
         after=snapshot(current),
     )
     return ServiceResult(current, action)
+
+
+def record_bulk_change(*, action, user, summary):
+    """Audit row for a change made of many service calls (e.g. applying a generated timetable)."""
+    TimetableAuditLog.objects.create(
+        user=user if getattr(user, "is_authenticated", False) else None,
+        action=action,
+        class_label="Whole school",
+        after=summary,
+    )

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Generator{% endblock %}
+{% block heading %}Timetable generator{% endblock %}
+{% block subheading %}<p class="muted">Builds a whole-school timetable with Google OR-Tools CP-SAT. The result is a proposal: review it, then apply it.</p>{% endblock %}
+
+{% block content %}
+<div class="dash-grid">
+  <section class="card">
+    <h2>Run the generator</h2>
+    {% if errors %}
+    <div class="alert alert-error" role="alert">
+      <p><strong>{{ errors|length }} data-health error{{ errors|length|pluralize }}</strong> must be fixed first. The generator will refuse to run until then.</p>
+      <ul>{% for issue in errors|slice:":5" %}<li>{{ issue.message }}</li>{% endfor %}</ul>
+      <a href="{% url 'school:health' %}">Open Data Health</a>
+    </div>
+    {% elif warning_count %}
+    <p class="alert alert-warning">{{ warning_count }} data-health warning{{ warning_count|pluralize }}. <a href="{% url 'school:health' %}">Review them</a>.</p>
+    {% endif %}
+
+    {% if can_run %}
+    <form method="post" class="stack generator-form" novalidate>
+      {% csrf_token %}
+      {% if form.non_field_errors %}<div class="alert alert-error">{{ form.non_field_errors }}</div>{% endif %}
+      <fieldset class="choice-list">
+        <legend>{{ form.keep_mode.label }}</legend>
+        {% for radio in form.keep_mode %}
+        <label class="choice" for="{{ radio.id_for_label }}">{{ radio.tag }}<span class="choice-main">{{ radio.choice_label }}</span></label>
+        {% endfor %}
+        <p class="muted small">There are {{ lesson_count }} lesson{{ lesson_count|pluralize }} now, {{ locked_count }} of them locked.</p>
+      </fieldset>
+      <fieldset class="choice-list">
+        <legend>{{ form.mode.label }}</legend>
+        {% for radio in form.mode %}
+        <label class="choice" for="{{ radio.id_for_label }}">{{ radio.tag }}<span class="choice-main">{{ radio.choice_label }}</span></label>
+        {% endfor %}
+      </fieldset>
+      <div class="form-inline">
+        {% for field in form %}{% if field.name == "time_limit" or field.name == "random_seed" %}
+        <div class="field">
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% if field.errors %}<div class="cell-error">{{ field.errors|join:" " }}</div>{% endif %}
+          <span class="muted small">{{ field.help_text }}</span>
+        </div>
+        {% endif %}{% endfor %}
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary"{% if errors %} disabled{% endif %}>Generate timetable</button>
+      </div>
+      <p class="run-progress" role="status">Generating… this takes up to the time limit. Please keep this page open.</p>
+    </form>
+    {% else %}
+    <p class="muted">You have read-only access. Ask a timetable editor to run the generator.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Recent runs</h2>
+    <div class="table-scroll">
+      <table class="table">
+        <thead><tr><th scope="col">Run</th><th scope="col">When</th><th scope="col">Status</th><th scope="col" class="num">Seconds</th></tr></thead>
+        <tbody>
+          {% for run in runs %}
+          <tr>
+            <th scope="row"><a href="{% url 'generator:run_detail' run.pk %}">#{{ run.pk }}</a></th>
+            <td>{{ run.created_at|date:"j M Y, H:i" }}{% if run.user %}<span class="th-sub">{{ run.user.get_username }}</span>{% endif %}</td>
+            <td><span class="badge badge-{% if run.status == 'succeeded' or run.status == 'applied' %}ok{% elif run.status == 'running' %}info{% else %}error{% endif %}">{{ run.get_status_display }}</span></td>
+            <td class="num">{{ run.duration|default_if_none:"—" }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4" class="empty">No runs yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

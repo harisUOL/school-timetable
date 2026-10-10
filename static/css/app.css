@@ -476,3 +476,25 @@ input:focus-visible, select:focus-visible { outline: 3px solid var(--focus); out
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
   .btn.is-loading::before { animation: none; border-right-color: currentColor; opacity: .6; }
 }
+
+/* ---- Generator --------------------------------------------------------------- */
+
+.small { font-size: .85rem; }
+.run-progress { display: none; margin: 0; padding: .6rem .8rem; border-radius: 6px; background: var(--info-bg); color: var(--info); }
+.generator-form[aria-busy="true"] .run-progress { display: block; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .5rem 1rem; margin: .5rem 0 0; }
+.facts dt { color: var(--text-muted); font-size: .85rem; }
+.facts dd { margin: 0; font-weight: 600; }
+.summary-row.compact { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); margin-bottom: 0; }
+.summary-row.compact .stat-value { font-size: 1.3rem; }
+.review-head { display: flex; justify-content: space-between; align-items: end; gap: 1rem; flex-wrap: wrap; margin-bottom: .75rem; }
+.verdict-better { color: var(--ok); font-weight: 700; }
+.verdict-worse { color: var(--error); font-weight: 700; }
+.diff-new { background: var(--ok-bg); border-color: var(--ok); }
+.diff-changed { background: var(--warning-bg); border-color: var(--warning); }
+.diff-removed { background: var(--error-bg); border-color: var(--error); border-style: dashed; }
+.diff-kept { box-shadow: inset 0 0 0 2px var(--lesson-border); }
+.diff-same { background: var(--info-bg); }
+.diff-tag { position: absolute; bottom: 2px; right: 4px; font-size: .6rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); }
+.slot-removed { text-decoration: line-through; color: var(--error); font-weight: 600; }
+.page-actions form { margin: 0; }

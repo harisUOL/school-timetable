@@ -63,10 +63,17 @@ class PageAccessTests(TestCase):
         response = self.client.post(reverse("logout"))
         self.assertRedirects(response, reverse("login"))
 
-    def test_disabled_sidebar_items_for_unbuilt_pages(self):
+    def test_sidebar_marks_current_page_and_disables_missing_ones(self):
+        from unittest import mock
+
+        from config import navigation
+
         self.client.force_login(make_user("admin", superuser=True))
         response = self.client.get(reverse("scheduling:dashboard"))
         self.assertContains(response, 'aria-current="page"')
+        self.assertNotContains(response, 'aria-disabled="true"')  # every page exists now
+        with mock.patch.object(navigation, "SIDEBAR", [*navigation.SIDEBAR, ("Future", "nope:missing")]):
+            response = self.client.get(reverse("scheduling:dashboard"))
         self.assertContains(response, 'aria-disabled="true"')
 
     def test_health_page_lists_issues_with_admin_links(self):

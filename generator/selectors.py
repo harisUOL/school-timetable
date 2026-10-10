@@ -5,7 +5,18 @@ from dataclasses import dataclass
 
 from school.day_schedule import Calendar
 from scheduling.models import TimetableEntry
-from scheduling.selectors import LESSON, MIXED_NOTE, Cell, Grid, Row, agenda, grid_header, row_cells, teacher_week
+from scheduling.selectors import (
+    LESSON,
+    MIXED_NOTE,
+    Cell,
+    Grid,
+    Row,
+    agenda,
+    class_activities,
+    grid_header,
+    row_cells,
+    teacher_week,
+)
 
 SAME, KEPT, NEW, CHANGED, REMOVED = "same", "kept", "new", "changed", "removed"
 DIFF_LABELS = {
@@ -45,7 +56,9 @@ def proposal_grid(run, *, class_group=None, teacher=None):
     if class_group is not None:
         lessons, current = lessons.filter(class_group=class_group), current.filter(class_group=class_group)
         week = calendar.class_week(class_group.pk)
+        activities = class_activities(class_group)
     else:
+        activities = defaultdict(dict)
         lessons, current = list(lessons.filter(teacher=teacher)), current.filter(teacher=teacher)
         week = teacher_week(calendar, {pl.class_group_id for pl in lessons} | {e.class_group_id for e in current})
         if week is None:
@@ -60,7 +73,7 @@ def proposal_grid(run, *, class_group=None, teacher=None):
 
     rows = []
     for schedule in week:
-        cells = row_cells(schedule, width, recess_after, proposed[schedule.day], columns)
+        cells = row_cells(schedule, width, recess_after, proposed[schedule.day], columns, activities[schedule.day])
         for cell in cells:
             if not cell.is_slot:
                 continue

@@ -62,6 +62,8 @@ WRITES = {
     "scheduling:lock_lesson": (lambda o: [], lambda o: {"class_id": o.c.pk, "day": 0, "period": 1, "locked": True}, True),
     "scheduling:reset_class": (lambda o: [o.c.pk], lambda o: {}, False),
     "school:availability": (lambda o: [], lambda o: {}, False),
+    "scheduling:add_activity": (lambda o: [], lambda o: {"class_id": o.c.pk, "day": 0, "period": 2, "label": "Assembly", "length": 1}, True),
+    "scheduling:remove_activity": (lambda o: [], lambda o: {"class_id": o.c.pk, "day": 0, "period": 2}, True),
     "generator:index": (lambda o: [], lambda o: {"keep_mode": "keep_all_existing", "mode": "complete", "time_limit": 1, "random_seed": 0}, False),
     "generator:apply_run": (lambda o: [o.gen_run.pk], lambda o: {}, False),
 }

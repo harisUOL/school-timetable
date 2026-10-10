@@ -414,3 +414,36 @@ Applying 486 lessons through the service takes about 5 s on SQLite.
 
   The school week defaults match Class VI–X. A trial generation on the real data placed
   all 1769 periods with no overlapping teacher lessons.
+
+## Activities, and Friday's recess
+
+**Built**
+- **Activities** (`scheduling.Activity`): a named block in a class's timetable that is not a
+  lesson, e.g. "Activity session" in Saturday periods VI–VII. It has no subject and no
+  teacher, and holds its slots: no lesson can be assigned or generated there.
+  - From the class timetable: click a slot, then *Add an activity instead* (empty slot) or
+    *Replace with an activity* (a lesson).
+  - Choose a name, a length in consecutive periods, and who it is for: this class, every
+    class in the grade, every class in the timing group, or the whole school. Classes
+    whose day has no such periods are skipped and named.
+  - Lessons in those periods block it, unless *Remove the lessons in those periods* is
+    ticked. They are then removed (audited) and can be placed again by the generator.
+    Locked lessons always block it.
+  - Click an activity to remove it from this class or from every class it was added to.
+  - Written only through `scheduling.services.add_activity` / `remove_activity`, all or
+    nothing, with audit rows (`activity_add`, `activity_remove`).
+  - Validators, the generator, data health (a class's free slots exclude activities), the
+    calendar checks, grids, proposals, print, Excel and PDF all respect activities.
+    Consecutive periods of one activity are drawn as one block.
+- The slot dialog's title shows the period's time.
+
+**Fixed**
+- The dialog footer printed "null" when choosing a subject for an empty slot.
+- A re-rendered cell now shows its own time when its day differs from the column heading.
+
+**Changed**
+- Friday's recess now follows period IV for Class I–V (10:10–10:40) and Class VI–X and the
+  school week (10:00–10:30), as on other days. Friday still ends at 12:00.
+  - The shift made 4 teachers' Friday lessons overlap. Friday was cleared and regenerated
+    for the 8 classes involved (I A, I C, IV B, V D, VII A, VII B, VII C, VIII D; 47
+    lessons). The other 1722 lessons were kept.

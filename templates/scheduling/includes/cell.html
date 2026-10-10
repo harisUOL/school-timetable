@@ -1,7 +1,9 @@
 {% if cell.kind == "recess" %}<td class="recess-cell" aria-label="Recess{% if cell.time_label %} {{ cell.time_label }}{% endif %}"{% if cell.time_label %} title="Recess {{ cell.time_label }}"{% endif %}><span>Recess</span></td>{% elif cell.kind == "gap" %}<td class="gap-cell" aria-hidden="true"></td>{% elif cell.kind == "none" %}<td class="none-cell"><span class="visually-hidden">No lesson</span></td>{% else %}<td class="slot-cell" id="slot-{{ cell.day }}-{{ cell.period }}" data-slot="{{ cell.day }}-{{ cell.period }}">
-  {% if can_edit %}<button type="button" class="slot slot-{{ cell.kind }}{% if cell.entry.is_locked %} is-locked{% endif %}" data-day="{{ cell.day }}" data-period="{{ cell.period }}"{% if cell.entry %} data-entry-id="{{ cell.entry.pk }}" data-updated-at="{{ cell.updated_at }}"{% endif %} aria-label="{{ cell.aria_label }}">{% else %}<div class="slot slot-{{ cell.kind }}{% if cell.entry.is_locked %} is-locked{% endif %}" aria-label="{{ cell.aria_label }}" role="group">{% endif %}
+  {% if can_edit %}<button type="button" class="slot slot-{{ cell.kind }}{% if cell.entry.is_locked %} is-locked{% endif %}{% if cell.joins %} joins-{{ cell.joins }}{% endif %}" data-day="{{ cell.day }}" data-period="{{ cell.period }}"{% if cell.entry %} data-entry-id="{{ cell.entry.pk }}" data-updated-at="{{ cell.updated_at }}"{% endif %} aria-label="{{ cell.aria_label }}">{% else %}<div class="slot slot-{{ cell.kind }}{% if cell.entry.is_locked %} is-locked{% endif %}{% if cell.joins %} joins-{{ cell.joins }}{% endif %}" aria-label="{{ cell.aria_label }}" role="group">{% endif %}
     <span class="slot-period" aria-hidden="true">{{ cell.roman }}</span>{% if cell.own_time %}<span class="slot-time">{{ cell.time_label }}</span>{% endif %}
-    {% if cell.entry %}
+    {% if cell.activity %}
+    <span class="slot-subject slot-activity-name">{{ cell.activity }}</span>
+    {% elif cell.entry %}
     <span class="slot-subject">{{ cell.entry.subject.code|default:cell.entry.subject.name }}</span>
     <span class="slot-teacher">{{ cell.entry.teacher.name }}</span>
     {% if cell.entry.is_locked %}<span class="slot-lock" title="Locked">🔒</span>{% endif %}

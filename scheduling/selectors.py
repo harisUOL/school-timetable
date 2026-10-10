@@ -13,7 +13,7 @@ from school.day_schedule import SCHOOL_WEEK, Calendar, get_class_week, get_week_
 from school.models import SubjectRequirement, Teacher, TeacherDailyAvailability
 
 from . import validators as v
-from .models import TimetableEntry
+from .models import Activity, TimetableEntry
 
 
 def day_label(day):
@@ -36,18 +36,20 @@ def roman(number):
 # Class grid
 # --------------------------------------------------------------------------
 
-LESSON, EMPTY, RECESS, NONE, GAP = "lesson", "empty", "recess", "none", "gap"
+LESSON, EMPTY, RECESS, NONE, GAP, ACTIVITY = "lesson", "empty", "recess", "none", "gap", "activity"
 
 
 @dataclass
 class Cell:
-    kind: str  # lesson | empty | recess | none | gap (another day's recess column)
+    kind: str  # lesson | empty | activity | recess | none | gap (another day's recess column)
     day: int = None
     day_label: str = ""
     period: int = None
     entry: TimetableEntry = None
     time_label: str = ""  # bell times, e.g. "08:00–08:40"
     own_time: bool = False  # True when this day's times differ from the column heading
+    activity: str = ""  # the activity's name, for kind == "activity"
+    joins: str = ""  # "start" | "middle" | "end": part of a longer activity (drawn as one block)
 
     @property
     def roman(self):
@@ -66,6 +68,8 @@ class Cell:
         where = f"{self.day_label}, period {self.period}"
         if self.time_label:
             where += f" ({self.time_label})"
+        if self.activity:
+            return f"{where}: {self.activity} (activity)"
         if self.entry:
             locked = ", locked" if self.entry.is_locked else ""
             return f"{where}: {self.entry.subject.name} with {self.entry.teacher.name}{locked}"
@@ -89,13 +93,15 @@ class Grid:
     note: str = ""  # shown above the grid, e.g. why a teacher's lessons are listed by time
 
 
-def row_cells(schedule, width, recess_after, entries_by_period, columns=None):
+def row_cells(schedule, width, recess_after, entries_by_period, columns=None, activities_by_period=None):
     """
     One row of the grid: periods 1..width, so period N is always in the same
     column on every day. The header has a recess column at every position some
     day takes its recess (`recess_after` = those positions); this day shows its
     recess in its own column and a blank gap in the others. Periods past the
-    day's end are "no lesson" cells.
+    day's end are "no lesson" cells. `activities_by_period` ({period: (name,
+    batch)}) turns slots into activity cells; consecutive periods of one
+    activity are marked to be drawn as one block.
 
     Each slot carries its bell times. Pass the header `columns` so a slot whose
     times differ from its column heading is marked to show its own.
@@ -105,11 +111,22 @@ def row_cells(schedule, width, recess_after, entries_by_period, columns=None):
     recess_headings = {c["after"]: c["time"] for c in columns or [] if c["kind"] == "recess"}
     times = {t.number: t.label for t in schedule.timings if t.kind == "period"}
     recess_time = schedule.recess_time
+    activities = activities_by_period or {}
+
+    def joined(a, b):
+        return a in activities and b in activities and activities[a] == activities[b]
+
     cells = []
     for period in range(1, width + 1):
         if period <= schedule.periods:
             entry = entries_by_period.get(period)
-            cell = Cell(LESSON if entry else EMPTY, schedule.day, schedule.label, period, entry)
+            if period in activities:
+                cell = Cell(ACTIVITY, schedule.day, schedule.label, period)
+                cell.activity = activities[period][0]
+                before, after = joined(period - 1, period), joined(period, period + 1)
+                cell.joins = "middle" if before and after else "end" if before else "start" if after else ""
+            else:
+                cell = Cell(LESSON if entry else EMPTY, schedule.day, schedule.label, period, entry)
             cell.time_label = times.get(period, "")
             cell.own_time = bool(cell.time_label) and cell.time_label != headings.get(period)
             cells.append(cell)
@@ -158,29 +175,39 @@ def grid_header(week):
     return width, positions, columns
 
 
+def class_activities(class_group):
+    """{day: {period: (name, batch)}} for one class."""
+    result = defaultdict(dict)
+    for day, period, label, batch in Activity.objects.filter(class_group=class_group).values_list(
+        "day", "period", "label", "batch"
+    ):
+        result[day][period] = (label, batch)
+    return result
+
+
 def class_grid(class_group):
     week = get_class_week(class_group)
     width, recess_after, columns = grid_header(week)
     entries = defaultdict(dict)
     for entry in TimetableEntry.objects.with_related().filter(class_group=class_group):
         entries[entry.day][entry.period] = entry
+    activities = class_activities(class_group)
     rows = [
-        Row(s.day, s.label, s.short_label, row_cells(s, width, recess_after, entries[s.day], columns))
+        Row(s.day, s.label, s.short_label, row_cells(s, width, recess_after, entries[s.day], columns, activities[s.day]))
         for s in week
     ]
-    filled = sum(1 for row in rows for cell in row.cells if cell.kind == LESSON)
+    filled = sum(1 for row in rows for cell in row.cells if cell.kind in (LESSON, ACTIVITY))
     return Grid(columns, rows, filled, sum(s.periods for s in week))
 
 
 def class_cell(class_group, day, period):
-    """A single slot cell, for re-rendering after a change."""
-    entry = TimetableEntry.objects.with_related().filter(
-        class_group=class_group, day=day, period=period
-    ).first()
-    schedule = next(s for s in get_class_week(class_group) if s.day == day)
-    cell = Cell(LESSON if entry else EMPTY, day, schedule.label, period, entry)
-    cell.time_label = schedule.period_label(period)
-    return cell
+    """A single slot cell, exactly as the full grid draws it, for re-rendering after a change."""
+    week = get_class_week(class_group)
+    width, recess_after, columns = grid_header(week)
+    schedule = next(s for s in week if s.day == day)
+    entries = {e.period: e for e in TimetableEntry.objects.with_related().filter(class_group=class_group, day=day)}
+    cells = row_cells(schedule, width, recess_after, entries, columns, class_activities(class_group)[day])
+    return next(c for c in cells if c.period == period and c.kind in (LESSON, EMPTY, ACTIVITY))
 
 
 # --------------------------------------------------------------------------
@@ -333,6 +360,26 @@ def slot_options(class_group, day, period):
     if schedule is None or not schedule.is_valid_period(period):
         raise ValueError(f"Not a teaching slot: day {day}, period {period}")
 
+    base = {
+        "class": {"id": class_group.pk, "label": str(class_group)},
+        "day": {"value": day, "label": schedule.label},
+        "period": {"number": period, "roman": roman(period), "time": schedule.period_label(period)},
+        "activity": None,
+        "activity_form": activity_form(class_group, schedule, period, state.calendar),
+    }
+    activity = Activity.objects.filter(class_group=class_group, day=day, period=period).first()
+    if activity is not None:
+        together = Activity.objects.filter(batch=activity.batch)
+        periods = sorted(together.filter(class_group=class_group).values_list("period", flat=True))
+        span = f"period {periods[0]}" if len(periods) == 1 else f"periods {periods[0]}–{periods[-1]}"
+        base["activity"] = {
+            "label": activity.label,
+            "periods": periods,
+            "span": span,
+            "classes": together.values("class_group").distinct().count(),
+        }
+        return {**base, "entry": None, "subjects": []}
+
     entry = (
         TimetableEntry.objects.with_related()
         .filter(class_group=class_group, day=day, period=period)
@@ -405,9 +452,7 @@ def slot_options(class_group, day, period):
         )
 
     return {
-        "class": {"id": class_group.pk, "label": str(class_group)},
-        "day": {"value": day, "label": schedule.label},
-        "period": {"number": period, "roman": roman(period), "time": schedule.period_label(period)},
+        **base,
         "entry": (
             {
                 "id": entry.pk,
@@ -423,6 +468,24 @@ def slot_options(class_group, day, period):
         ),
         "subjects": subjects,
     }
+
+
+def activity_form(class_group, schedule, period, calendar):
+    """What the "Add an activity" form offers for this slot: how long it can run, and for whom."""
+    from school.models import ClassGroup
+
+    classes = list(ClassGroup.objects.with_structure())
+    grade = [c for c in classes if c.grade_id == class_group.grade_id]
+    group_id = calendar.group_of_class(class_group.pk)
+    group = [c for c in classes if calendar.group_of_class(c.pk) == group_id]
+    scopes = [{"value": "class", "label": f"Only {class_group}"}]
+    if len(grade) > 1:
+        scopes.append({"value": "grade", "label": f"Every class in Grade {class_group.grade.name} ({len(grade)} classes)"})
+    if group_id is not SCHOOL_WEEK and len(group) > len(grade):
+        scopes.append({"value": "group", "label": f"Every class in {calendar.group_name(group_id)} ({len(group)} classes)"})
+    if len(classes) > max(len(group), len(grade)):
+        scopes.append({"value": "school", "label": f"The whole school ({len(classes)} classes)"})
+    return {"max_length": schedule.periods - period + 1, "scopes": scopes}
 
 
 # --------------------------------------------------------------------------

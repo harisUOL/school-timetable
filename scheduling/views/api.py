@@ -9,6 +9,7 @@ return 400 with the violations.
 
 import json
 
+from django.contrib import messages
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
@@ -185,3 +186,62 @@ class LockView(WriteView):
                 [v.Violation(v.SLOT_EMPTY, f"{class_group} has no lesson on {v.slot_text(day, period)}.")]
             )
         return services.set_locked(entry=entry, locked=data["locked"], user=request.user, expected=expected)
+
+
+class ActivityView(WriteView):
+    """
+    Activities can change many cells and classes at once, so a success adds a
+    message for the next page and asks the client to reload the timetable.
+    """
+
+    def render_result(self, request, class_group, day, period, result):
+        messages.success(request, self.success_message(result, class_group, day, period))
+        return {"ok": True, "reload": True}
+
+
+def _classes_text(classes):
+    names = [str(c) for c in classes]
+    return names[0] if len(names) == 1 else f"{len(names)} classes"
+
+
+class AddActivityView(ActivityView):
+    """POST /api/activities/add/ {class_id, day, period, label, length, scope, clear_lessons}"""
+
+    def perform(self, request, data, class_group, day, period):
+        scope = data.get("scope", "class")
+        if scope not in services.ACTIVITY_SCOPES:
+            raise BadRequest("Choose which classes the activity is for.")
+        if not isinstance(data.get("clear_lessons", False), bool):
+            raise BadRequest("'clear_lessons' must be true or false.")
+        return services.add_activity(
+            class_group=class_group,
+            day=day,
+            start=period,
+            length=_int(data, "length"),
+            label=str(data.get("label", "")),
+            scope=scope,
+            clear_lessons=data.get("clear_lessons", False),
+            user=request.user,
+        )
+
+    def success_message(self, result, class_group, day, period):
+        message = f"Added {result.label} on {services._slot_list(day, result.periods)} for {_classes_text(result.classes)}."
+        if result.cleared:
+            message += f" {result.cleared} lesson(s) were removed to make room; generate with “Keep all existing lessons” to place them again."
+        if result.skipped:
+            message += f" Skipped {', '.join(str(c) for c in result.skipped)}: their day has no such period."
+        return message
+
+
+class RemoveActivityView(ActivityView):
+    """POST /api/activities/remove/ {class_id, day, period, everywhere}"""
+
+    def perform(self, request, data, class_group, day, period):
+        if not isinstance(data.get("everywhere", False), bool):
+            raise BadRequest("'everywhere' must be true or false.")
+        return services.remove_activity(
+            class_group=class_group, day=day, period=period, everywhere=data.get("everywhere", False), user=request.user
+        )
+
+    def success_message(self, result, class_group, day, period):
+        return f"Removed {result.label} from {_classes_text(result.classes)}."

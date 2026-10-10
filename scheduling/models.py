@@ -118,6 +118,46 @@ class TimetableEntry(models.Model):
             )
 
 
+class ActivityQuerySet(models.QuerySet):
+    def with_class(self):
+        return self.select_related("class_group__grade", "class_group__section")
+
+
+class Activity(models.Model):
+    """
+    Something in a class's timetable that is not a lesson: an assembly, an
+    activity session, a club. It has a free-text name, no subject and no
+    teacher, and takes its slot so no lesson (manual or generated) can go
+    there. One `Activity` row per class and period; rows added together
+    (several periods, several classes) share a `batch` so they can be removed
+    together. Written only through `scheduling.services`.
+    """
+
+    class_group = models.ForeignKey(ClassGroup, on_delete=models.CASCADE, related_name="activities")
+    day = models.PositiveSmallIntegerField(choices=Day.choices)
+    period = models.PositiveSmallIntegerField()
+    label = models.CharField(max_length=80)
+    batch = models.UUIDField(db_index=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = ActivityQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["class_group", "day", "period"]
+        verbose_name_plural = "activities"
+        constraints = [
+            models.UniqueConstraint(fields=["class_group", "day", "period"], name="activity_class_slot_unique"),
+            models.CheckConstraint(condition=VALID_DAY_Q, name="activity_valid_day"),
+            models.CheckConstraint(condition=Q(period__gte=1), name="activity_period_positive"),
+        ]
+
+    def __str__(self):
+        return f"{self.class_group} · {self.get_day_display()} P{self.period} · {self.label}"
+
+
 class TimetableAuditLog(models.Model):
     """
     One row per change made through `scheduling.services`. `before`/`after`
@@ -132,6 +172,8 @@ class TimetableAuditLog(models.Model):
         LOCK = "lock", "Lock"
         UNLOCK = "unlock", "Unlock"
         GENERATOR_APPLY = "generator_apply", "Apply generated timetable"
+        ACTIVITY_ADD = "activity_add", "Add activity"
+        ACTIVITY_REMOVE = "activity_remove", "Remove activity"
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"

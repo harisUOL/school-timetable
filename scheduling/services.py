@@ -23,14 +23,17 @@ future `Lesson` owning several classes/teachers can be introduced behind
 these functions without changing their callers.
 """
 
+import uuid
+from collections import defaultdict
 from dataclasses import dataclass, field
 
 from django.db import IntegrityError, transaction
 
-from school.models import Teacher
+from school.day_schedule import Calendar
+from school.models import ClassGroup, Teacher
 
 from . import validators as v
-from .models import TimetableAuditLog, TimetableEntry
+from .models import Activity, TimetableAuditLog, TimetableEntry
 
 
 class SchedulingError(Exception):
@@ -263,3 +266,173 @@ def record_bulk_change(*, action, user, summary):
         class_label="Whole school",
         after=summary,
     )
+
+
+# --------------------------------------------------------------------------
+# Activities: named blocks that are not lessons (assembly, activity session)
+# --------------------------------------------------------------------------
+
+ACTIVITY_SCOPES = ("class", "grade", "group", "school")
+MAX_ACTIVITY_LABEL = 80
+
+
+@dataclass
+class ActivityResult:
+    action: str
+    label: str
+    periods: list
+    classes: list = field(default_factory=list)  # classes changed
+    skipped: list = field(default_factory=list)  # classes whose day has no such periods
+    cleared: int = 0  # lessons removed to make room
+
+
+def activity_targets(class_group, scope, calendar=None):
+    """The classes an activity added from `class_group` applies to, for each scope."""
+    calendar = calendar or Calendar.load()
+    classes = ClassGroup.objects.with_structure()
+    if scope == "class":
+        return [class_group]
+    if scope == "grade":
+        return list(classes.filter(grade_id=class_group.grade_id))
+    if scope == "group":
+        group = calendar.group_of_class(class_group.pk)
+        return [c for c in classes if calendar.group_of_class(c.pk) == group]
+    if scope == "school":
+        return list(classes)
+    raise SchedulingError([v.Violation("BAD_REQUEST", "Choose which classes the activity is for.")])
+
+
+def _slot_list(day, periods):
+    if len(periods) == 1:
+        return v.slot_text(day, periods[0])
+    return f"{v.slot_text(day, periods[0])}–{periods[-1]}"
+
+
+@transaction.atomic
+def add_activity(*, class_group, day, start, length, label, user, scope="class", clear_lessons=False):
+    """
+    Put an activity in `length` consecutive periods from `start`, for this
+    class or every class in its grade, timing group or the whole school.
+    Classes whose day has no such periods are skipped (never this class).
+
+    The slots must be free. Lessons already there block the change unless
+    `clear_lessons` is set: then they are removed (and audited) so the
+    generator can place them elsewhere; locked lessons always block it.
+    All or nothing.
+    """
+    label = " ".join(str(label or "").split())
+    if not label:
+        raise SchedulingError([v.Violation("ACTIVITY_NAME", "Give the activity a name.")])
+    if len(label) > MAX_ACTIVITY_LABEL:
+        raise SchedulingError(
+            [v.Violation("ACTIVITY_NAME", f"Keep the name to {MAX_ACTIVITY_LABEL} characters or fewer.")]
+        )
+    if length < 1:
+        raise SchedulingError([v.Violation("BAD_REQUEST", "An activity lasts at least one period.")])
+    calendar = Calendar.load()
+    periods = list(range(start, start + length))
+    own = calendar.class_day(class_group.pk, day)
+    if own is None or not all(own.is_valid_period(p) for p in periods):
+        last = own.periods if own else 0
+        raise SchedulingError(
+            [v.Violation(v.INVALID_SLOT, f"{class_group} has teaching periods 1–{last} only on that day.")]
+        )
+
+    targets, skipped = [], []
+    for c in activity_targets(class_group, scope, calendar):
+        schedule = calendar.class_day(c.pk, day)
+        (targets if schedule and periods[-1] <= schedule.periods else skipped).append(c)
+
+    violations = []
+    for a in Activity.objects.select_for_update().with_class().filter(class_group__in=targets, day=day, period__in=periods):
+        violations.append(
+            v.Violation(v.SLOT_OCCUPIED, f"{a.class_group} already has {a.label} on {v.slot_text(day, a.period)}.")
+        )
+    entries = list(
+        TimetableEntry.objects.select_for_update()
+        .with_related()
+        .filter(class_group__in=targets, day=day, period__in=periods)
+        .order_by("class_group__grade__order", "class_group__section__name", "period")
+    )
+    for e in entries:
+        if e.is_locked:
+            violations.append(
+                v.Violation(
+                    v.SLOT_OCCUPIED,
+                    f"{e.class_group} has a locked lesson ({e.subject} with {e.teacher}) on "
+                    f"{v.slot_text(day, e.period)}. Unlock it first.",
+                )
+            )
+    if entries and not clear_lessons:
+        examples = ", ".join(f"{e.class_group} {e.subject.code or e.subject}" for e in entries[:4])
+        more = f" and {len(entries) - 4} more" if len(entries) > 4 else ""
+        violations.append(
+            v.Violation(
+                v.SLOT_OCCUPIED,
+                f"{len(entries)} lesson(s) are already in those periods ({examples}{more}). "
+                "Tick “Remove the lessons in those periods” to make room; the generator can place them again.",
+                {"lessons": len(entries)},
+            )
+        )
+    if violations:
+        if len(violations) > 8:
+            violations = violations[:8] + [v.Violation(v.SLOT_OCCUPIED, f"…and {len(violations) - 8} more.")]
+        raise SchedulingError(violations)
+
+    if entries:
+        _lock_teachers(*(e.teacher_id for e in entries))
+        for e in entries:
+            before = snapshot(e)
+            e.delete()
+            _audit(user, TimetableAuditLog.Action.CLEAR, e.class_group, day=day, period=e.period, before=before)
+
+    batch = uuid.uuid4()
+    actor = user if getattr(user, "is_authenticated", False) else None
+    Activity.objects.bulk_create(
+        Activity(class_group=c, day=day, period=p, label=label, batch=batch, created_by=actor)
+        for c in targets
+        for p in periods
+    )
+    for c in targets:
+        _audit(
+            user,
+            TimetableAuditLog.Action.ACTIVITY_ADD,
+            c,
+            day=day,
+            period=start,
+            after={"activity": label, "periods": periods, "batch": str(batch)},
+        )
+    return ActivityResult(TimetableAuditLog.Action.ACTIVITY_ADD, label, periods, targets, skipped, len(entries))
+
+
+@transaction.atomic
+def remove_activity(*, class_group, day, period, user, everywhere=False):
+    """
+    Remove the activity in this slot: all of its periods in this class, or
+    (`everywhere`) every class and period it was added to together.
+    """
+    activity = (
+        Activity.objects.select_for_update().filter(class_group=class_group, day=day, period=period).first()
+    )
+    if activity is None:
+        raise SchedulingError(
+            [v.Violation(v.SLOT_EMPTY, f"{class_group} has no activity on {v.slot_text(day, period)}.")]
+        )
+    rows = Activity.objects.select_for_update().with_class().filter(batch=activity.batch)
+    if not everywhere:
+        rows = rows.filter(class_group=class_group)
+    by_class = defaultdict(list)
+    for row in rows:
+        by_class[row.class_group].append(row.period)
+    for c, periods in by_class.items():
+        _audit(
+            user,
+            TimetableAuditLog.Action.ACTIVITY_REMOVE,
+            c,
+            day=day,
+            period=min(periods),
+            before={"activity": activity.label, "periods": sorted(periods), "batch": str(activity.batch)},
+        )
+    Activity.objects.filter(pk__in=[r.pk for r in rows]).delete()
+    periods = sorted({p for ps in by_class.values() for p in ps})
+    return ActivityResult(TimetableAuditLog.Action.ACTIVITY_REMOVE, activity.label, periods, list(by_class))

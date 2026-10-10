@@ -19,4 +19,6 @@ urlpatterns = [
     path("api/lessons/assign/", api.AssignView.as_view(), name="assign_lesson"),
     path("api/lessons/clear/", api.ClearView.as_view(), name="clear_lesson"),
     path("api/lessons/lock/", api.LockView.as_view(), name="lock_lesson"),
+    path("api/activities/add/", api.AddActivityView.as_view(), name="add_activity"),
+    path("api/activities/remove/", api.RemoveActivityView.as_view(), name="remove_activity"),
 ]

@@ -19,6 +19,7 @@ Hard constraints
   could start, at most one of the teacher's possible lessons covers it.
 - Lessons per teacher per day <= max_periods (kept lessons count too).
 - Kept lessons are constants: they occupy their slots and capacity.
+- Activities (assembly, activity session) hold their class's slots: no lesson goes there.
 
 Soft constraints (weights in settings.GENERATOR["WEIGHTS"])
 - At most N lessons of a subject per class per day (N = TIMETABLE_MAX_SUBJECT_LESSONS_PER_DAY).
@@ -41,7 +42,7 @@ from ortools.sat.python import cp_model
 
 from school.day_schedule import Calendar, overlaps
 from school.models import ClassGroup, Subject, SubjectRequirement, Teacher, TeacherDailyAvailability
-from scheduling.models import TimetableEntry
+from scheduling.models import Activity, TimetableEntry
 from scheduling.validators import Lesson, _load_qualifications
 
 from .timeline import home_period, home_schedule
@@ -71,6 +72,7 @@ class Problem:
     capacity: dict  # (teacher_id, day) -> max_periods (missing means 0)
     kept: list  # Lesson (key = entry id) fixed in place
     max_subject_per_day: int = 2
+    activities: set = field(default_factory=set)  # {(class_id, day, period)} held by activities
 
     @property
     def week(self):
@@ -118,6 +120,7 @@ def load_problem(*, keep_locked_only):
         },
         kept=kept,
         max_subject_per_day=settings.TIMETABLE_MAX_SUBJECT_LESSONS_PER_DAY,
+        activities=set(Activity.objects.values_list("class_group_id", "day", "period")),
     )
 
 
@@ -132,7 +135,8 @@ class Analysis:
     def __init__(self, problem):
         self.problem = problem
         days = {s.day for s in problem.week}
-        self.class_busy = {(k.class_id, k.day, k.period) for k in problem.kept}
+        # Slots a class cannot have a new lesson in: kept lessons and activities.
+        self.class_busy = {(k.class_id, k.day, k.period) for k in problem.kept} | set(problem.activities)
         # Clock times the teacher is already busy with kept lessons: {(teacher, day): [(start, end)]}
         self.teacher_kept = defaultdict(list)
         for k in problem.kept:

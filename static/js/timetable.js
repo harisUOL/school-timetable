@@ -15,6 +15,8 @@ if (grid && dialog && csrfInput) {
     assign: grid.dataset.assignUrl,
     clear: grid.dataset.clearUrl,
     lock: grid.dataset.lockUrl,
+    addActivity: grid.dataset.addActivityUrl,
+    removeActivity: grid.dataset.removeActivityUrl,
   };
   const classId = Number(grid.dataset.classId);
   const regions = {
@@ -27,7 +29,7 @@ if (grid && dialog && csrfInput) {
   const state = {
     slot: null, // {day, period}
     options: null, // server response for the slot
-    mode: "view", // "view" an existing lesson, or "edit" (choose subject + teacher)
+    mode: "view", // "view" a lesson, "edit" (choose subject + teacher), "activity" (add one), "activity-view"
     subjectId: null,
     teacherId: null,
     busy: false,
@@ -51,6 +53,11 @@ if (grid && dialog && csrfInput) {
       node.append(child instanceof Node ? child : document.createTextNode(String(child)));
     }
     return node;
+  }
+
+  // Footer buttons; optional ones may be null and are skipped (replaceChildren would print "null").
+  function setFooter(...nodes) {
+    regions.footer.replaceChildren(...nodes.filter(Boolean));
   }
 
   // ---- Server calls -----------------------------------------------------
@@ -125,7 +132,7 @@ if (grid && dialog && csrfInput) {
       return;
     }
     state.options = data;
-    state.mode = data.entry ? "view" : "edit";
+    state.mode = data.activity ? "activity-view" : data.entry ? "view" : "edit";
     if (data.entry) {
       state.subjectId = data.entry.subject_id;
       state.teacherId = data.entry.teacher_id;
@@ -151,7 +158,7 @@ if (grid && dialog && csrfInput) {
   // Keep Tab inside the modal.
   dialog.addEventListener("keydown", (event) => {
     if (event.key !== "Tab") return;
-    const focusable = [...dialog.querySelectorAll("button, input, [href], [tabindex]:not([tabindex='-1'])")].filter(
+    const focusable = [...dialog.querySelectorAll("button, input, select, [href], [tabindex]:not([tabindex='-1'])")].filter(
       (node) => !node.disabled && node.offsetParent !== null
     );
     if (!focusable.length) return;
@@ -170,9 +177,12 @@ if (grid && dialog && csrfInput) {
 
   function render() {
     const o = state.options;
-    regions.title.textContent = `${o.class.label} · ${o.day.label}, period ${o.period.roman}`;
+    const time = o.period.time ? ` (${o.period.time})` : "";
+    regions.title.textContent = `${o.class.label} · ${o.day.label}, period ${o.period.roman}${time}`;
     showErrors([]);
-    if (state.mode === "view") renderLesson();
+    if (state.mode === "activity-view") renderActivity();
+    else if (state.mode === "activity") renderActivityForm();
+    else if (state.mode === "view") renderLesson();
     else renderPicker();
   }
 
@@ -190,7 +200,7 @@ if (grid && dialog && csrfInput) {
         el("dd", { text: entry.is_locked ? "Locked (kept by the generator)" : "Not locked" })
       )
     );
-    regions.footer.replaceChildren(
+    setFooter(
       el("button", { type: "button", class: "btn btn-danger", onclick: removeLesson, text: "Remove" }),
       el("button", {
         type: "button",
@@ -198,6 +208,7 @@ if (grid && dialog && csrfInput) {
         onclick: toggleLock,
         text: entry.is_locked ? "Unlock" : "Lock",
       }),
+      activityButton("Replace with an activity"),
       el("span", { class: "spacer" }),
       cancelButton(),
       el("button", {
@@ -221,7 +232,7 @@ if (grid && dialog && csrfInput) {
       regions.body.replaceChildren(
         el("p", { text: `${o.class.label} has no subject requirements. Add them in the admin first.` })
       );
-      regions.footer.replaceChildren(cancelButton());
+      setFooter(activityButton("Add an activity instead"), el("span", { class: "spacer" }), cancelButton());
       return;
     }
 
@@ -258,7 +269,7 @@ if (grid && dialog && csrfInput) {
     renderTeachers();
 
     const confirmLabel = o.entry ? "Save change" : "Assign lesson";
-    regions.footer.replaceChildren(
+    setFooter(
       o.entry
         ? el("button", {
             type: "button",
@@ -271,7 +282,7 @@ if (grid && dialog && csrfInput) {
             },
             text: "Back",
           })
-        : null,
+        : activityButton("Add an activity instead"),
       el("span", { class: "spacer" }),
       cancelButton(),
       el("button", { type: "button", class: "btn btn-primary", "data-action": "confirm", onclick: assignLesson, text: confirmLabel })
@@ -373,6 +384,137 @@ if (grid && dialog && csrfInput) {
     }
   }
 
+  // ---- Activities (assembly, activity session: not a lesson) -------------
+
+  function activityButton(text) {
+    return el("button", {
+      type: "button",
+      class: "btn",
+      onclick: () => {
+        state.mode = "activity";
+        render();
+        focusFirst("input[name=activity-label]");
+      },
+      text,
+    });
+  }
+
+  function renderActivity() {
+    const a = state.options.activity;
+    regions.body.replaceChildren(
+      el(
+        "dl",
+        { class: "lesson-summary" },
+        el("dt", { text: "Activity" }),
+        el("dd", { text: a.label }),
+        el("dt", { text: "Takes" }),
+        el("dd", { text: `${state.options.day.label}, ${a.span}` }),
+        el("dt", { text: "Added for" }),
+        el("dd", { text: a.classes === 1 ? state.options.class.label : `${a.classes} classes` })
+      ),
+      el("p", { class: "muted", text: "No lesson can be placed here while the activity is in the timetable." })
+    );
+    setFooter(
+      el("button", {
+        type: "button",
+        class: "btn btn-danger",
+        onclick: (event) => submit(urls.removeActivity, { everywhere: false }, event),
+        text: a.classes === 1 ? "Remove" : `Remove from ${state.options.class.label}`,
+      }),
+      a.classes > 1
+        ? el("button", {
+            type: "button",
+            class: "btn btn-danger",
+            onclick: (event) => submit(urls.removeActivity, { everywhere: true }, event),
+            text: `Remove from all ${a.classes} classes`,
+          })
+        : null,
+      el("span", { class: "spacer" }),
+      cancelButton()
+    );
+  }
+
+  function renderActivityForm() {
+    const o = state.options;
+    const form = o.activity_form;
+    const roman = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
+    const lengths = Array.from({ length: form.max_length }, (_, i) => {
+      const last = o.period.number + i;
+      const span = i ? `periods ${roman[o.period.number - 1]}–${roman[last - 1]}` : `period ${roman[last - 1]}`;
+      return el("option", { value: i + 1, text: `${i + 1} period${i ? "s" : ""} (${span})` });
+    });
+    regions.body.replaceChildren(
+      el(
+        "div",
+        { class: "activity-form" },
+        el("p", {
+          class: "muted",
+          text: "For something that is not a lesson, such as an assembly or an activity session. It takes the periods you choose, and no lesson can be placed there.",
+        }),
+        el(
+          "div",
+          { class: "field" },
+          el("label", { for: "activity-label", text: "Name" }),
+          el("input", { type: "text", id: "activity-label", name: "activity-label", maxlength: 80, placeholder: "e.g. Activity session", required: true })
+        ),
+        el("div", { class: "field" }, el("label", { for: "activity-length", text: "Length" }), el("select", { id: "activity-length" }, lengths)),
+        el(
+          "fieldset",
+          { class: "choice-list" },
+          el("legend", { text: "For" }),
+          form.scopes.map((scope, i) =>
+            el(
+              "label",
+              { class: "choice", for: `activity-scope-${scope.value}` },
+              el("input", { type: "radio", name: "activity-scope", id: `activity-scope-${scope.value}`, value: scope.value, checked: i === 0 }),
+              el("span", { class: "choice-main", text: scope.label })
+            )
+          )
+        ),
+        el(
+          "label",
+          { class: "check", for: "activity-clear" },
+          el("input", { type: "checkbox", id: "activity-clear", checked: Boolean(o.entry) }),
+          el("span", { text: "Remove the lessons in those periods. They become unplaced again, and the generator can put them somewhere else." })
+        )
+      )
+    );
+    setFooter(
+      el("button", {
+        type: "button",
+        class: "btn",
+        onclick: () => {
+          state.mode = o.entry ? "view" : "edit";
+          render();
+        },
+        text: "Back",
+      }),
+      el("span", { class: "spacer" }),
+      cancelButton(),
+      el("button", { type: "button", class: "btn btn-primary", onclick: addActivity, text: "Add activity" })
+    );
+  }
+
+  function addActivity(event) {
+    const body = regions.body;
+    const label = body.querySelector("#activity-label").value.trim();
+    if (!label) {
+      showErrors([{ code: "ACTIVITY_NAME", message: "Give the activity a name." }]);
+      body.querySelector("#activity-label").focus();
+      return;
+    }
+    return submit(
+      urls.addActivity,
+      {
+        label,
+        length: Number(body.querySelector("#activity-length").value),
+        scope: body.querySelector("input[name=activity-scope]:checked").value,
+        clear_lessons: body.querySelector("#activity-clear").checked,
+      },
+      event
+    );
+  }
+
   function cancelButton() {
     return el("button", { type: "button", class: "btn", "data-action": "cancel", text: "Cancel" });
   }
@@ -422,6 +564,11 @@ if (grid && dialog && csrfInput) {
     setBusy(false);
     if (!data.ok) {
       showErrors(data.violations);
+      return;
+    }
+    if (data.reload) {
+      // An activity can change many cells and classes: show the page afresh (its message comes with it).
+      window.location.reload();
       return;
     }
     applyResult(data);

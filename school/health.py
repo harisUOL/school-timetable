@@ -10,7 +10,7 @@ All checks read configuration only. They never look at timetable entries:
 that is the conflict report's job (Phase 4).
 """
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 
 from django.conf import settings
@@ -74,7 +74,10 @@ class _Snapshot:
     """Everything the checks need, loaded in a handful of queries."""
 
     def __init__(self):
+        from scheduling.models import Activity
+
         self.calendar = Calendar.load()
+        self.activity_slots = Counter(Activity.objects.values_list("class_group_id", flat=True))
         self.week = {s.day: s for s in self.calendar.school_week}
         self.teachers = {t.pk: t for t in Teacher.objects.all()}
         self.qualified = defaultdict(set)  # subject_id -> {teacher_id}
@@ -184,12 +187,14 @@ def _classes_over_slots(snap):
         totals[req.class_group_id] += req.periods_per_week
         classes[req.class_group_id] = req.class_group
     for class_id, total in totals.items():
-        slots = snap.calendar.class_weekly_slots(class_id)
+        activities = snap.activity_slots[class_id]
+        slots = snap.calendar.class_weekly_slots(class_id) - activities
         if total > slots:
+            held = f" ({activities} are taken by activities)" if activities else ""
             yield Issue(
                 "CLASS_OVER_SLOTS",
                 f"{classes[class_id]} requires {total} periods a week but has only "
-                f"{slots} teaching slots.",
+                f"{slots} teaching slots{held}.",
                 admin_change(classes[class_id]),
                 "Edit class requirements",
             )

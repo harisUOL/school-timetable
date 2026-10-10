@@ -171,7 +171,7 @@ class SettingsPageTests(TestCase):
         make_requirement(class_group, self.maths, periods=5, teacher=self.teacher)
         TimetableEntry.objects.create(class_group=class_group, day=Day.FRIDAY, period=8, teacher=self.teacher, subject=self.maths)
         response = self.client.post(self.URL, self.payload(**{"day-4-periods": "6"}))
-        self.assertContains(response, "Friday: 1 timetable lesson(s) are scheduled beyond period 6", status_code=400)
+        self.assertContains(response, "Friday: 1 timetable lesson(s) or activity period(s) are scheduled beyond period 6", status_code=400)
         self.assertEqual(self.capacities()[Day.FRIDAY], 9)  # nothing changed
 
     def test_invalid_values_are_reported_and_nothing_saved(self):

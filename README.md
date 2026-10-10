@@ -73,6 +73,9 @@ produces a complete, valid timetable (486 lessons for 10 classes).
       another class, a full day, or no capacity that day), their day and week loads,
       and the designated teacher pre-selected.
   - On an occupied slot you can change, remove, lock or unlock the lesson.
+  - **Activities:** put something that is not a lesson (assembly, activity session) into
+    one or more consecutive periods. It can be for one class, its grade, its timing group
+    or the whole school. No lesson can go there, and the generator plans around it.
   - *Reset timetable* clears one class only, after confirmation. It snapshots the
     lessons to the audit log, and can keep locked lessons.
 - **Teachers / Teacher Workloads**:

@@ -351,6 +351,12 @@ button.slot:hover { border-color: var(--primary); box-shadow: 0 0 0 1px var(--pr
 .slot-subject { font-weight: 700; font-size: .85rem; }
 .slot-teacher { font-size: .72rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .slot-add { font-size: 1.2rem; color: var(--text-muted); }
+.slot-activity { background: var(--warning-bg); border-color: var(--warning); }
+.slot-activity-name { white-space: normal; overflow-wrap: anywhere; }
+/* Consecutive periods of one activity read as one block across the cell gap. */
+.slot.joins-start { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right-style: dashed; }
+.slot.joins-middle { border-radius: 0; border-left-style: dashed; border-right-style: dashed; }
+.slot.joins-end { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-style: dashed; }
 .slot-lock { position: absolute; top: 2px; right: 4px; font-size: .7rem; }
 
 .recess-cell { background: repeating-linear-gradient(135deg, var(--surface-2), var(--surface-2) 4px, transparent 4px, transparent 8px); border-radius: 4px; text-align: center; }

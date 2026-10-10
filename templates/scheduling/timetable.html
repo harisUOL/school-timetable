@@ -42,7 +42,9 @@
              data-options-url="{% url 'scheduling:slot_options' %}"
              data-assign-url="{% url 'scheduling:assign_lesson' %}"
              data-clear-url="{% url 'scheduling:clear_lesson' %}"
-             data-lock-url="{% url 'scheduling:lock_lesson' %}">
+             data-lock-url="{% url 'scheduling:lock_lesson' %}"
+             data-add-activity-url="{% url 'scheduling:add_activity' %}"
+             data-remove-activity-url="{% url 'scheduling:remove_activity' %}">
         <caption class="visually-hidden">Weekly timetable for {{ class_group }}. {% if can_edit %}Choose a slot to add or change a lesson.{% endif %}</caption>
         <thead>
           <tr>

@@ -29,7 +29,7 @@ from school.constants import Day
 from school.day_schedule import Calendar, overlaps
 from school.models import SubjectRequirement, TeacherDailyAvailability, TeacherSubject
 
-from .models import TimetableEntry
+from .models import Activity, TimetableEntry
 
 # Blocking codes
 INVALID_SLOT = "INVALID_SLOT"
@@ -157,6 +157,14 @@ class DatabaseState:
         )
         return self._lesson(entry) if entry else None
 
+    def class_activity(self, class_id, day, period):
+        """The name of the activity holding this slot, or None."""
+        return (
+            Activity.objects.filter(class_group_id=class_id, day=day, period=period)
+            .values_list("label", flat=True)
+            .first()
+        )
+
     def teacher_overlap(self, teacher_id, class_id, day, period, exclude=None):
         """The teacher's lesson in another class whose time overlaps this slot, if any."""
         entries = self._entries(exclude).with_related().filter(teacher_id=teacher_id, day=day)
@@ -190,8 +198,9 @@ class MemoryState:
     qualifications) is loaded once; lessons can be added and removed freely.
     """
 
-    def __init__(self, lessons=(), *, calendar=None, capacities=None, requirements=None, qualified=None):
+    def __init__(self, lessons=(), *, calendar=None, capacities=None, requirements=None, qualified=None, activities=None):
         self.calendar = calendar if calendar is not None else Calendar.load()
+        self.activities = activities if activities is not None else _load_activities()
         self.week = {s.day: s for s in self.calendar.school_week}  # the operating days
         self.capacities = capacities if capacities is not None else _load_capacities()
         self.requirements = requirements if requirements is not None else _load_requirements()
@@ -230,6 +239,9 @@ class MemoryState:
     def class_slot_lesson(self, class_id, day, period, exclude=None):
         return self._unless(self._class_slot.get((class_id, day, period)), exclude)
 
+    def class_activity(self, class_id, day, period):
+        return self.activities.get((class_id, day, period))
+
     def teacher_overlap(self, teacher_id, class_id, day, period, exclude=None):
         keys = self._teacher_day.get((teacher_id, day), ())
         lessons = [self.lessons[k] for k in keys if k != exclude]
@@ -254,6 +266,11 @@ class MemoryState:
 
     def is_qualified(self, teacher_id, subject_id):
         return (teacher_id, subject_id) in self.qualified
+
+
+def _load_activities():
+    """{(class, day, period): activity name}"""
+    return {(c, d, p): label for c, d, p, label in Activity.objects.values_list("class_group_id", "day", "period", "label")}
 
 
 def _load_capacities():
@@ -312,6 +329,15 @@ def validate_assignment(
         )
 
     if slot_ok:
+        activity = state.class_activity(class_group.pk, day, period)
+        if activity:
+            violations.append(
+                Violation(
+                    SLOT_OCCUPIED,
+                    f"{class_group} has {activity} on {slot_text(day, period)}.",
+                    {"activity": activity},
+                )
+            )
         occupant = state.class_slot_lesson(class_group.pk, day, period, exclude)
         if occupant:
             violations.append(

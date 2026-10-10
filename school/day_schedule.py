@@ -319,7 +319,7 @@ def calendar_errors(new, old=None, *, check_capacities=True):
     and (unless `check_capacities` is False) that no daily capacity exceeds the
     longest day.
     """
-    from scheduling.models import TimetableEntry
+    from scheduling.models import Activity, TimetableEntry
 
     from .models import ClassGroup, TeacherDailyAvailability
 
@@ -351,12 +351,18 @@ def calendar_errors(new, old=None, *, check_capacities=True):
         if period > last:
             count, _ = stranded.get((class_id, day), (0, last))
             stranded[(class_id, day)] = (count + 1, last)
+    for class_id, day, period in Activity.objects.values_list("class_group_id", "day", "period"):
+        schedule = new.class_day(class_id, day)
+        last = schedule.periods if schedule else 0
+        if period > last:
+            count, _ = stranded.get((class_id, day), (0, last))
+            stranded[(class_id, day)] = (count + 1, last)
     if stranded:
         labels = {c.pk: str(c) for c in ClassGroup.objects.with_structure().filter(pk__in={c for c, _ in stranded})}
         for (class_id, day), (count, last) in sorted(stranded.items(), key=lambda i: (i[0][1], labels[i[0][0]])):
             errors.append(
-                f"{Day(day).label}: {count} timetable lesson(s) are scheduled beyond period {last} for "
-                f"{labels[class_id]}. Clear them before reducing this day's periods."
+                f"{Day(day).label}: {count} timetable lesson(s) or activity period(s) are scheduled beyond "
+                f"period {last} for {labels[class_id]}. Clear them before reducing this day's periods."
             )
 
     if check_capacities:

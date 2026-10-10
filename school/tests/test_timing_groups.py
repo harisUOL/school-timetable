@@ -234,7 +234,7 @@ class TimingGroupPageTests(TwoGroupSchool):
             ),
         )
         self.assertContains(
-            response, "Monday: 1 timetable lesson(s) are scheduled beyond period 6 for 5B", status_code=400
+            response, "Monday: 1 timetable lesson(s) or activity period(s) are scheduled beyond period 6 for 5B", status_code=400
         )
         self.assertIsNone(Grade.objects.get(pk=self.five.grade.pk).timing_group)
 

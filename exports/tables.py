@@ -38,7 +38,10 @@ def _grid_table(title, subtitle, grid, cell_text, extra_header=None, extra_cells
             else:
                 # A day whose bell times differ from the column heading names its own.
                 text = [cell.time_label] if cell.own_time else []
-                text += [cell_text(cell.entry)] if cell.entry else []
+                if cell.kind == selectors.ACTIVITY:
+                    text.append(cell.activity)
+                elif cell.entry:
+                    text.append(cell_text(cell.entry))
                 cells.append("\n".join(text))
         if extra_cells:
             cells.append(extra_cells(row))
